@@ -1,0 +1,198 @@
+<!-- 
+    I waive copyright and related rights in the this work worldwide through the CC0 1.0 Universal public domain dedication.
+    https://creativecommons.org/publicdomain/zero/1.0/legalcode
+-->
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+ 
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<!-- 
+    I waive copyright and related rights in the this work worldwide through the CC0 1.0 Universal public domain dedication.
+    https://creativecommons.org/publicdomain/zero/1.0/legalcode
+-->
+
+<head>   <meta http-equiv="content-type" content="text/html;charset=UTF-8" />
+
+
+	<link rel="stylesheet" href="pensive.css">
+   <title></title>
+</head>
+
+<body>
+  <!-- Begin top navbar -->
+  <div class="nav">
+    <ul class="nav">
+    
+    	 <!-- networks -->
+         <select id="network" class="nav">
+            <option value="KSC" class="nav">KSC</option>
+            <option value="MVO" class="nav">MVO</option>
+            <option value="AVO" class="nav">AVO</option>
+		</select>
+	    
+	    <!-- subnets -->
+	      <select id="KSCSubnets" class="nav subnet">
+             <option value="2016" class="nav">2016</option>
+			 <option value="2017" class="nav">2017</option>
+			 <option value="PASSCAL" class="nav">PASSCAL</option>
+			 <option value="Erosion" class="nav">Erosion</option>
+             <option value="DistalStations" class="nav">DistalStations</option>
+             <option value="Anatahan" class="nav">Anatahan</option>
+	      </select>
+	      <select id="iAVOSubnets" class="nav subnet">
+             <option value="Spurr" class="nav">Spurr</option>
+             <option value="Whittier" class="nav">Whittier</option>
+             <option value="Kenai" class="nav">Kenai</option>
+             <option value="Augustine" class="nav">Augustine</option>
+             <option value="Dillingham" class="nav">Dillingham</option>
+             <option value="SandPoint" class="nav">SandPoint</option>
+             <option value="Pavlof" class="nav">Pavlof</option>
+             <option value="Shishaldin" class="nav">Shishaldin</option>
+             <option value="Akutan" class="nav">Akutan</option>
+             <option value="Okmok" class="nav">Okmok</option>
+             <option value="Cleveland" class="nav">Cleveland</option>
+             <option value="Korovin" class="nav">Korovin</option>
+             <option value="Adak" class="nav">Adak</option>
+             <option value="Gareloi" class="nav">Gareloi</option>
+             <option value="Semisopochnoi" class="nav">Semisopochnoi</option>
+             <option value="Amchitka" class="nav">Amchitka</option>
+             <option value="SingleStation" class="nav">SingleStation</option>
+	      </select>
+	      <select id="AVOSubnets" class="nav subnet">
+             <option value="Edgecumbe" class="nav">Edgecumbe</option>
+             <option value="Wrangell" class="nav">Wrangell</option>
+             <option value="Spurr" class="nav">Spurr</option>
+             <option value="Redoubt" class="nav">Redoubt</option>
+             <option value="Iliamna" class="nav">Iliamna</option>
+             <option value="Augustine" class="nav">Augustine</option>
+             <option value="Fourpeaked" class="nav">Fourpeaked</option>
+             <option value="Snowy" class="nav">Snowy</option>
+             <option value="Katmai" class="nav">Katmai</option>
+             <option value="Martin" class="nav">Martin</option>
+             <option value="Peulik" class="nav">Peulik</option>
+             <option value="Aniakchak" class="nav">Aniakchak</option>
+             <option value="Veniaminof" class="nav">Veniaminof</option>
+             <option value="Pavlof" class="nav">Pavlof</option>
+             <option value="Dutton" class="nav">Dutton</option>
+             <option value="Shishaldin" class="nav">Shishaldin</option>
+             <option value="Westdahl" class="nav">Westdahl</option>
+             <option value="Akutan" class="nav">Akutan</option>
+             <option value="Makushin" class="nav">Makushin</option>
+             <option value="Bogoslof" class="nav">Bogoslof</option>
+             <option value="Okmok" class="nav">Okmok</option>
+             <option value="Cleveland" class="nav">Cleveland</option>
+             <option value="Korovin" class="nav">Korovin</option>
+             <option value="Great_Sitkin" class="nav">Great_Sitkin</option>
+             <option value="Kanaga" class="nav">Kanaga</option>
+             <option value="Tanaga" class="nav">Tanaga</option>
+             <option value="Gareloi" class="nav">Gareloi</option>
+             <option value="Semisopochnoi" class="nav">Semisopochnoi</option>
+             <option value="Little_Sitkin" class="nav">Little_Sitkin</option>
+	      </select>
+	   
+	  <a class="nav" title="Load a specific time" name="absoluteTime" href="#absoluteTime" rel="leanModal">Absolute time</a>
+	  <a class="nav" title="mosaicOptions" name="mosaicOptions" id="mosaicOptionsButton" href="#mosaicOptions" rel="leanModal">Mosaic Options</a>
+	  <a class="nav" title="mosaic" name="mosaic" id="mosaicButton">Mosaic</a>
+	  <a class="nav" title="permalink" name="permalink" id="permalinkButton" href="#permalink" rel="leanModal">Permalink</a>
+	  
+	  
+	  <a href="" shape="rect" ><li class="nav" title="next mosaic">What Am I Looking At?</li></a>
+	  
+	  <!-- <li class="nav" href="#" onClick="toggle_visibility('colorbar');" shape="rect">Colorbar</li> -->
+    </ul>
+</div>
+<!-- End top navbar -->
+
+<div class="clear"></div>
+
+<form method="get" id="absolutetime" class="hidden">
+<span id="absolutetime">
+  End time : <input type="text" name="month" value="MM" size="2" /> / <input type="text" name="day" value="DD" size="2" /> / <input type="text" name="year" value="YYYY" size="4" /> 
+  <input type="text" name="hour" value="HH" size="2" />:<input type="text" name="minute" value="MM" size="2" />
+
+  <input type="button" name="submit" value="Go" onClick="loadAbsoluteTime(this.form)" />
+</span>
+</form>
+
+
+
+<div class="clear"></div>
+
+<!--
+		TOP NAVIGATION
+-->
+<center>
+<div id="title">
+  <div id="perviousSubnet" class="navLeft">
+    <a title="previousSubnetName"><span class="button" title="previous subnet">&#9668;</span></a>
+  </div>
+  <div id="nextSubnet" class="navRight">
+    <a title="nextSubnetName"><span class="button" title="next subnet" id="navRight" style="width: 1em;float: left;">&#9658;</span></a>
+  </div>
+  <div id="subnetName" style="width: 100%;"></div>
+
+  <div class="clear" style="height: .25em;"></div>
+
+  <div class="navLeft">
+    <a title="previous image" id="previousImage"><span class="button" id="navLeft" title="previous image">&#9668;</span></a>
+  </div>
+  <div class="navRight">
+    <a title="next image" id="nextImage"><span class="button" style="width: 1em;float: left;" title="next image">&#9658;</span></a>
+    <a title="current image" id="currentImage"><span class="button" style="width: 2em;float: right;" title="current image">&#9658;&#9658;</span></a>
+  </div>
+  <div id="timeSpan" style="width: 100%;"></div>
+</div>
+
+</center><div id="top">
+<div id="mainFrame" class="image"></div>
+</div>
+<!-- 
+    I waive copyright and related rights in the this work worldwide through the CC0 1.0 Universal public domain dedication.
+    https://creativecommons.org/publicdomain/zero/1.0/legalcode
+-->
+<!--
+		MOSAIC OPTIONS
+-->
+<div id="mosaicOptions" class="dialog">
+	<h1>Mosaic Options</h1>
+	<form id="mosaicOptionsForm" name="mosaicOptionsForm">
+	<label for="dailyMosaic">Daily mosaic</label>
+	<input name="dailyMosaic" id="dailyMosaic" type="checkbox" />
+    <label for="mosaicSpan">Hours per mosaic</label>
+	<input name="mosaicSpan" type="text" id="mosaicSpanH" value="3" size="2" class="txtfield positiveInt" /> 
+  
+ 	<label for="mosaicRowSpan">Minutes per row</label>
+	<input name="mosaicRowSpan" type="text" id="mosaicRowSpanM" value="60" size="2" class="txtfield positiveInt" />
+	<div class="center"><input type="submit" name="mosaicOptionsBtn" id="mosaicOptionsBtn" class="flatbtn-blu hidemodal" value="Update" onClick="updateMosaicOptions();"></div>
+	</form>
+</div>
+
+<!--
+		ABSOLUTE TIME
+-->
+<div id="absoluteTime" class="dialog">
+	<h1>Absolute Time</h1>
+	<form id="absoluteTimeForm" name="absoluteTimeForm">
+		<label for="ATDate">Start (UTC)</label>
+		<input name="ATDate" type="text" id="ATDate" size="4" class="txtfield" /> 
+		<div class="center"><input type="submit" name="absoluteTimeBtn" id="absoluteTimeBtn" class="flatbtn-blu hidemodal" value="Update" onClick="updateAbsoluteTime();"></div>
+	</form>
+</div>
+
+<!--
+		PERMALINK
+-->
+<div id="permalink" class="dialog" style="width: auto;">
+	<h1>Permalink</h1>
+	<div class="permalink">
+		This page can always be found at:<br>
+		<span id="permalinkURL"></span><br>
+	</div>
+</div>
+<!-- 
+    I waive copyright and related rights in the this work worldwide through the CC0 1.0 Universal public domain dedication.
+    https://creativecommons.org/publicdomain/zero/1.0/legalcode
+-->
+<p><span id="version">Version: 1.7.1 Built: 2023-07-28T01:25:14Z</span>
+  <script type="text/javascript" src="pensive.js"> </script>
+</body>
+</html>
