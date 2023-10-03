@@ -35,23 +35,23 @@ def FDSN_to_SDS_daily_wrapper(startt, endt, SDS_TOP, centerlat=None, centerlon=N
     secsPerDay = 86400  
     while startt<endt:
         print(startt)
-        eod = startt+secsPerDay 
+        endOfRsamTimeWindow = startt+secsPerDay 
         # read from SDS - if no data download from FDSN
 
         thisSDSobj = SDS.SDSobj(SDS_TOP) 
         
-        if thisSDSobj.read(startt, eod, speed=2) or overwrite: # non-zero return value means no data in SDS so we will use FDSN
+        if thisSDSobj.read(startt, endOfRsamTimeWindow, speed=2) or overwrite: # non-zero return value means no data in SDS so we will use FDSN
             # read from FDSN
             if not trace_ids:
                 if inv: 
                     trace_ids = InventoryTools.inventory2traceid(inv)
                 else:
-                    inv = FDSNtools.get_inventory(fdsnURL, startt, eod, centerlat, centerlon, \
+                    inv = FDSNtools.get_inventory(fdsnURL, startt, endOfRsamTimeWindow, centerlat, centerlon, \
                                                         searchRadiusDeg, overwrite=overwrite ) # could add N S L C requirements too
                     if inv:
                         trace_ids = InventoryTools.inventory2traceid(inv)
             if trace_ids:
-                st = FDSNtools.get_stream(fdsnURL, trace_ids, startt, eod, overwrite=overwrite)
+                st = FDSNtools.get_stream(fdsnURL, trace_ids, startt, endOfRsamTimeWindow, overwrite=overwrite)
                 thisSDSobj.stream = st
                 thisSDSobj.write(overwrite=overwrite) # save raw data to SDS
             else:
@@ -96,22 +96,22 @@ def SDS_to_RSAM_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=15.0, \
     secsPerDay = 86400  
     while startt<endt:
         print(startt)
-        eod = startt+secsPerDay #-1/10000
+        endOfRsamTimeWindow = startt+secsPerDay #-1/10000
         # read from SDS - if no data download from FDSN
 
         thisSDSobj = SDS.SDSobj(SDS_TOP) 
-        if not thisSDSobj.read(startt-3600, eod+3600, speed=2, trace_ids=trace_ids) or overwrite: # non-zero return value means no data in SDS so we will use FDSN
+        if not thisSDSobj.read(startt-3600, endOfRsamTimeWindow+3600, speed=2, trace_ids=trace_ids) or overwrite: # non-zero return value means no data in SDS so we will use FDSN
 
             # compute instrument-corrected RSAM
             thisRSAMobj = RSAMobj(st=thisSDSobj.stream.copy(), inv=inv, sampling_interval=sampling_interval, \
-                              freqmin=freqmin, zerophase=zerophase, corners=corners, verbose=verbose, startt=startt, endt=eod)
+                              freqmin=freqmin, zerophase=zerophase, corners=corners, verbose=verbose, startt=startt, endt=endOfRsamTimeWindow)
             thisRSAMobj.write(SDS_TOP) # write RSAM to an SDS-like structure
         
             # compute/write reduced displacement
             if sourcelat and sourcelon and inv:
                 thisDRSobj = ReducedDisplacementObj(st=thisSDSobj.stream.copy(), inv=inv, sampling_interval=sampling_interval, \
                                 freqmin=freqmin, freqmax=freqmax, zerophase=zerophase, corners=corners, \
-                                     sourcelat=sourcelat, sourcelon=sourcelon, verbose=verbose, startt=startt, endt=eod )
+                                     sourcelat=sourcelat, sourcelon=sourcelon, verbose=verbose, startt=startt, endt=endOfRsamTimeWindow )
                 thisDRSobj.write(SDS_TOP) # write Drs to an SDS-like structure
     
 
@@ -145,37 +145,37 @@ def SDS_to_spectrogram_wrapper(startt, endt, SDS_TOP, trace_ids, windowlength=60
         Returns: None. Instead an RSAM volume (a variant of an SDS volume) is created/expanded.
 
     '''   
-    sotw = startt
+    startOfSgramTimeWindow = startt
     freqmin=0.2
     freqmax=25.0
-    while sotw<endt:
-        print(sotw)
-        eotw = sotw+windowlength #-1/10000
+    while startOfSgramTimeWindow<endt:
+        print(startOfSgramTimeWindow)
+        endOfSgramTimeWindow = startOfSgramTimeWindow+windowlength #-1/10000
         # read from SDS - if no data download from FDSN
 
         thisSDSobj = SDS.SDSobj(SDS_TOP) 
         
         
         if inv:
-            thisSDSobj.read(sotw-windowlength/2, eotw+windowlength/2, speed=2, trace_ids=trace_ids)
+            thisSDSobj.read(startOfSgramTimeWindow-windowlength/2, endOfSgramTimeWindow+windowlength/2, speed=2, trace_ids=trace_ids)
             st = thisSDSobj.stream
             pre_filt = [freqmin/1.2, freqmin, freqmax, freqmax*1.2]
             for tr in st:
                 if tr.stats.channel[2] in 'ENZ' : # filter seismic channels only
                     print('Processing %s' % tr.id)
                     tr.remove_response(output='DISP', inventory=inv, plot=verbose, pre_filt=pre_filt, water_level=60)    
-            st.trim(starttime=sotw, endtime=eotw)
+            st.trim(starttime=startOfSgramTimeWindow, endtime=endOfSgramTimeWindow)
         else:
-            thisSDSobj.read(sotw, eotw, speed=2, trace_ids=trace_ids)
+            thisSDSobj.read(startOfSgramTimeWindow, endOfSgramTimeWindow, speed=2, trace_ids=trace_ids)
             st = thisSDSobj.stream
 
         spobj = IceWeb.icewebSpectrogram(stream=st)
-        sgramfile = '%s.%s.png' % (st[0].stats.network, sotw.strftime('%Y%m%dT%H%M%S'))
+        sgramfile = '%s.%s.png' % (st[0].stats.network, startOfSgramTimeWindow.strftime('%Y%m%dT%H%M%S'))
         if not os.path.isfile(sgramfile) or overwrite:
             print(sgramfile)
             spobj.plot(outfile=sgramfile, dbscale=dbscale, title=sgramfile, equal_scale=equal_scale, clim=clim, fmin=freqmin, fmax=freqmax)
 
-        sotw+=windowlength
+        startOfSgramTimeWindow+=windowlength
 
 def order_traces_by_distance(st, r=[], assert_channel_order=False): 
     st2 = Stream()
@@ -198,7 +198,7 @@ def order_traces_by_distance(st, r=[], assert_channel_order=False):
 def SDS_to_ICEWEB_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=15.0, \
         zerophase=False, corners=2, sampling_interval=60.0, sourcelat=None, \
             sourcelon=None, inv=None, trace_ids=None, overwrite=True, verbose=False, sgrammins=10,  \
-                equal_scale=True, dbscale=True, clim=[1e-8, 1e-5], subnet=None, SGRAM_TOP='.'):
+                equal_scale=True, dbscale=True, clim=[1e-8, 1e-5], subnet=None, SGRAM_TOP='.', rsamStepSize=86400, taperSecs=3600):
     '''
     Load Stream from SDS archive and create RSAM metrics. RSAM by default is the mean absolute value in each 60-s window.
     
@@ -222,24 +222,28 @@ def SDS_to_ICEWEB_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=15.0, \
             sampling_interval (float) : bin size (in seconds) for binning data to compute RSAM.
             overwrite (bool) : If True, overwrite existing data in RSAM archive.
             verbose (bool) : If True, additional output is genereated for troubleshooting.
+            equal_scale (bool) : If True, all spectrograms will be scaled the same.
+            dbscale (bool) : If True, a logarithmic scale will be used for spectrograms. If False, a linear scale, which has limited dynamic range.
+            clim (tuple, 2 elements) : Lower and upper end (in m/s) of colormap used for spectrograms. Default: (1e-8, 1e-5)
+            SGRAM_TOP (string) : Path to top directory for saving spectrograms.
+            rsamStepSize (int) : step size in seconds of time window used for RSAM and DRS calculations. Default: 86400 (1 day). 
+            taperSecs (int) : seconds of extra data to load for response removal tapering. Default: 3600 (1 hour)
+            sgrammins (int) : number of minutes for each spectrogram. Default: 10
 
         Returns: None. Instead an RSAM volume (a variant of an SDS volume) is created/expanded.
 
     '''   
-
-
-    secsPerDay = 86400  
-    taperSecs = 3600 # extra data to load for response removal tapering
-    sod = startt
-    while sod<endt:
-        f"Processing {sod}"
-        eod = sod+secsPerDay #-1/10000
+    
+    startOfRsamTimeWindow = startt
+    while startOfRsamTimeWindow < endt:
+        f"Processing {startOfRsamTimeWindow}"
+        endOfRsamTimeWindow = startOfRsamTimeWindow + rsamStepSize
         # read from SDS
         thisSDSobj = SDS.SDSobj(SDS_TOP) 
         
         if inv: # with inventory CSAM, Drs, and spectrograms
 
-            thisSDSobj.read(sod-taperSecs, eod+taperSecs, speed=2, trace_ids=trace_ids)
+            thisSDSobj.read(startOfRsamTimeWindow-taperSecs, endOfRsamTimeWindow+taperSecs, speed=2, trace_ids=trace_ids)
             st = thisSDSobj.stream
 
             InventoryTools.attach_station_coordinates_from_inventory(inv, st)
@@ -260,15 +264,15 @@ def SDS_to_ICEWEB_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=15.0, \
                 f"Correcting to displacement seismogram"
             DISP = st.copy().select(channel="*H*").remove_response(output='DISP', inventory=inv, plot=verbose, pre_filt=pre_filt, water_level=60)
             if verbose:
-                f"Trimming to 24-hour day from {sod} to {eod}"
-            VEL.trim(starttime=sod, endtime=eod)
-            DISP.trim(starttime=sod, endtime=eod)
+                f"Trimming to 24-hour day from {startOfRsamTimeWindow} to {endOfRsamTimeWindow}"
+            VEL.trim(starttime=startOfRsamTimeWindow, endtime=endOfRsamTimeWindow)
+            DISP.trim(starttime=startOfRsamTimeWindow, endtime=endOfRsamTimeWindow)
 
             # compute instrument-corrected RSAM
             if verbose:
                 f"Computing corrected RSAM"
             thisRSAMobj = IceWeb.RSAMobj(st=VEL, inv=inv, sampling_interval=sampling_interval, freqmin=freqmin, freqmax=freqmax, \
-                               zerophase=zerophase, corners=corners, verbose=verbose, startt=sod, endt=eod, units='m/s', absolute=True)
+                               zerophase=zerophase, corners=corners, verbose=verbose, startt=startOfRsamTimeWindow, endt=endOfRsamTimeWindow, units='m/s', absolute=True)
             if verbose:
                 f"Saving corrected RSAM to SDS"
             thisRSAMobj.write(SDS_TOP) # write RSAM to an SDS-like structure
@@ -285,26 +289,26 @@ def SDS_to_ICEWEB_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=15.0, \
                 thisDRSobj.write(SDS_TOP) # write Drs to an SDS-like structure
 
             # spectrograms
-            sotw = sod
-            while sotw<eod:
-                eotw = sotw + sgrammins * 60
+            startOfSgramTimeWindow = startOfRsamTimeWindow
+            while startOfSgramTimeWindow < endOfRsamTimeWindow:
+                endOfSgramTimeWindow = startOfSgramTimeWindow + sgrammins * 60
                 if verbose:
-                    f"Generating spectrogram from {sotw} to {eotw}"
-                tw_st = VEL.copy().trim(starttime=sotw, endtime=eotw)
+                    f"Generating spectrogram from {startOfSgramTimeWindow} to {endOfSgramTimeWindow}"
+                tw_st = VEL.copy().trim(starttime=startOfSgramTimeWindow, endtime=endOfSgramTimeWindow)
                 if isinstance(tw_st, Stream) and len(tw_st)>0 and tw_st[0].stats.npts>1000:
                     pass
                 else:
                     if verbose:
                         f"- Not possible"
-                    sotw += sgrammins * 60    
+                    startOfSgramTimeWindow += sgrammins * 60    
                     continue
-                sgramdir = os.path.join(SGRAM_TOP, tw_st[0].stats.network, sotw.strftime('%Y'), sotw.strftime('%j'))
-                sgrambase = '%s_%s.png' % (subnet, sotw.strftime('%Y%m%d-%H%M'))
+                sgramdir = os.path.join(SGRAM_TOP, tw_st[0].stats.network, startOfSgramTimeWindow.strftime('%Y'), startOfSgramTimeWindow.strftime('%j'))
+                sgrambase = '%s_%s.png' % (subnet, startOfSgramTimeWindow.strftime('%Y%m%d-%H%M'))
                 sgramfile = os.path.join(sgramdir, sgrambase)
                 if not os.path.isdir(sgramdir):
                     os.makedirs(sgramdir)
                 if not os.path.isfile(sgramfile) or overwrite:
-                    print(sgramfile)
+                    f"Output file: {sgramfile}"
                     spobj = IceWeb.icewebSpectrogram(stream=tw_st)
                     fh, ah = spobj.plot(outfile=sgramfile, dbscale=dbscale, title=sgramfile, equal_scale=equal_scale, clim=clim, fmin=freqmin, fmax=freqmax)
                     try:
@@ -312,22 +316,18 @@ def SDS_to_ICEWEB_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=15.0, \
                     except:
                         plt.close()
 
-                sotw += sgrammins * 60    
+                startOfSgramTimeWindow += sgrammins * 60    
 
         else: # No inventory, just raw RSAM
-            thisSDSobj.read(sotw, eotw, speed=2, trace_ids=trace_ids)
+            thisSDSobj.read(startOfRsamTimeWindow, endOfRsamTimeWindow, speed=2, trace_ids=trace_ids)
             if verbose:
                 f"SDS Stream: {thisSDSob.stream}"
                 f"Computing raw RSAM"
             thisRSAMobj = IceWeb.RSAMobj(st=thisSDSobj.stream, sampling_interval=sampling_interval, freqmin=freqmin, freqmax=freqmax, \
-                               zerophase=zerophase, corners=corners, verbose=verbose, startt=startt, endt=eod, units='Counts', absolute=True)
+                               zerophase=zerophase, corners=corners, verbose=verbose, startt=startt, endt=endOfRsamTimeWindow, units='Counts', absolute=True)
             if verbose:
                 f"Saving raw RSAM to SDS"
             thisRSAMobj.write(SDS_TOP) # write RSAM to an SDS-like structure
 
-
-      
-    
-
-        sod+=secsPerDay # add 1 day 
+        startOfRsamTimeWindow+=rsamStepSize # add 1 day 
         

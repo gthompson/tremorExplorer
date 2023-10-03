@@ -24,4 +24,4 @@ inv = FDSNtools.get_inventory(fdsnURL, startt, endt, centerlat, centerlon, searc
 #        fdsnURL=fdsnURL, overwrite=False, inv=inv)
 wrappers.SDS_to_ICEWEB_wrapper(startt, endt, SDS_TOP, sampling_interval=60.0, sourcelat=centerlat, \
             sourcelon=centerlon, inv=inv, trace_ids=trace_ids, overwrite=False, verbose=True, sgrammins=10, \
-                equal_scale=True, dbscale=True, clim=[1e-8, 1e-5], subnet=subnet, SGRAM_TOP=SGRAM_TOP)
+                equal_scale=True, dbscale=True, clim=[1e-8, 1e-5], subnet=subnet, SGRAM_TOP=SGRAM_TOP, rsamStepSize=3600, taperSecs=600)
