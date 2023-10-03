@@ -221,6 +221,7 @@ def SDS_to_ICEWEB_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=15.0, \
             corners (int) : Filter is applied this many times. Default 2.
             sampling_interval (float) : bin size (in seconds) for binning data to compute RSAM.
             overwrite (bool) : If True, overwrite existing data in RSAM archive.
+            verbose (bool) : If True, additional output is genereated for troubleshooting.
 
         Returns: None. Instead an RSAM volume (a variant of an SDS volume) is created/expanded.
 
@@ -231,7 +232,7 @@ def SDS_to_ICEWEB_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=15.0, \
     taperSecs = 3600 # extra data to load for response removal tapering
     sod = startt
     while sod<endt:
-        print(sod)
+        f"Processing {sod}"
         eod = sod+secsPerDay #-1/10000
         # read from SDS
         thisSDSobj = SDS.SDSobj(SDS_TOP) 
@@ -244,46 +245,68 @@ def SDS_to_ICEWEB_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=15.0, \
             InventoryTools.attach_station_coordinates_from_inventory(inv, st)
             InventoryTools.attach_distance_to_stream(st, sourcelat, sourcelon) 
             r = [tr.stats.distance for tr in st]
-            print(st,r)
+            if verbose:
+                f"SDS Stream: {st}"
+                f"Distances: {r}"
             st = order_traces_by_distance(st, r, assert_channel_order=True)
             print(st, [tr.stats.distance for tr in st])
             #VEL = order_traces_by_distance(VEL, r, assert_channel_order=True)
 
             pre_filt = [freqmin/1.2, freqmin, freqmax, freqmax*1.2]
+            if verbose:
+                f"Correcting to velocity seismogram"
             VEL = st.copy().select(channel="*H*").remove_response(output='VEL', inventory=inv, plot=verbose, pre_filt=pre_filt, water_level=60)
+            if verbose:
+                f"Correcting to displacement seismogram"
             DISP = st.copy().select(channel="*H*").remove_response(output='DISP', inventory=inv, plot=verbose, pre_filt=pre_filt, water_level=60)
-            #attach_station_coordinates_from_inventory(inv, DISP)
-            #attach_distance_to_stream(DISP, sourcelat, sourcelon)   
+            if verbose:
+                f"Trimming to 24-hour day from {sod} to {eod}"
             VEL.trim(starttime=sod, endtime=eod)
             DISP.trim(starttime=sod, endtime=eod)
 
             # compute instrument-corrected RSAM
+            if verbose:
+                f"Computing corrected RSAM"
             thisRSAMobj = IceWeb.RSAMobj(st=VEL, inv=inv, sampling_interval=sampling_interval, freqmin=freqmin, freqmax=freqmax, \
-                               zerophase=zerophase, corners=corners, verbose=verbose, startt=startt, endt=eod, units='m/s', absolute=True)
+                               zerophase=zerophase, corners=corners, verbose=verbose, startt=sod, endt=eod, units='m/s', absolute=True)
+            if verbose:
+                f"Saving corrected RSAM to SDS"
             thisRSAMobj.write(SDS_TOP) # write RSAM to an SDS-like structure
 
             # compute/write reduced displacement
             if sourcelat and sourcelon:
+                if verbose:
+                    f"Computing DRS"
                 thisDRSobj = IceWeb.ReducedDisplacementObj(st=DISP, inv=inv, sampling_interval=sampling_interval, \
                                 freqmin=freqmin, freqmax=freqmax, zerophase=zerophase, corners=corners, \
                                      sourcelat=sourcelat, sourcelon=sourcelon, verbose=verbose, units='m' )
+                if verbose:
+                    f"Writing DRS to SDS"
                 thisDRSobj.write(SDS_TOP) # write Drs to an SDS-like structure
 
             # spectrograms
             sotw = sod
             while sotw<eod:
                 eotw = sotw + sgrammins * 60
+                if verbose:
+                    f"Generating spectrogram from {sotw} to {eotw}"
                 tw_st = VEL.copy().trim(starttime=sotw, endtime=eotw)
-                spobj = IceWeb.icewebSpectrogram(stream=tw_st)
-                sgramdir = os.path.join(SGRAM_TOP, st[0].stats.network, sotw.strftime('%Y'), sotw.strftime('%j'))
+                if isinstance(tw_st, Stream) and len(tw_st)>0 and tw_st[0].stats.npts>1000:
+                    pass
+                else:
+                    if verbose:
+                        f"- Not possible"
+                    sotw += sgrammins * 60    
+                    continue
+                sgramdir = os.path.join(SGRAM_TOP, tw_st[0].stats.network, sotw.strftime('%Y'), sotw.strftime('%j'))
                 sgrambase = '%s_%s.png' % (subnet, sotw.strftime('%Y%m%d-%H%M'))
                 sgramfile = os.path.join(sgramdir, sgrambase)
                 if not os.path.isdir(sgramdir):
                     os.makedirs(sgramdir)
                 if not os.path.isfile(sgramfile) or overwrite:
                     print(sgramfile)
+                    spobj = IceWeb.icewebSpectrogram(stream=tw_st)
                     fh, ah = spobj.plot(outfile=sgramfile, dbscale=dbscale, title=sgramfile, equal_scale=equal_scale, clim=clim, fmin=freqmin, fmax=freqmax)
-                    print(fh, ah)
                     try:
                         fh.close()
                     except:
@@ -293,13 +316,18 @@ def SDS_to_ICEWEB_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=15.0, \
 
         else: # No inventory, just raw RSAM
             thisSDSobj.read(sotw, eotw, speed=2, trace_ids=trace_ids)
+            if verbose:
+                f"SDS Stream: {thisSDSob.stream}"
+                f"Computing raw RSAM"
             thisRSAMobj = IceWeb.RSAMobj(st=thisSDSobj.stream, sampling_interval=sampling_interval, freqmin=freqmin, freqmax=freqmax, \
                                zerophase=zerophase, corners=corners, verbose=verbose, startt=startt, endt=eod, units='Counts', absolute=True)
+            if verbose:
+                f"Saving raw RSAM to SDS"
             thisRSAMobj.write(SDS_TOP) # write RSAM to an SDS-like structure
 
 
       
     
 
-        startt+=secsPerDay # add 1 day 
+        sod+=secsPerDay # add 1 day 
         

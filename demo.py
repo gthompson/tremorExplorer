@@ -20,8 +20,8 @@ SGRAM_TOP = '/RAIDZ/IceWeb'
 startt = UTCDateTime(2019,1,1)
 endt = UTCDateTime(2019,12,12)
 inv = FDSNtools.get_inventory(fdsnURL, startt, endt, centerlat, centerlon, searchRadiusDeg, network='NZ', station='*', channel='HHZ')
-wrappers.FDSN_to_SDS_daily_wrapper(startt-3600, endt, SDS_TOP, trace_ids=trace_ids, \
-        fdsnURL=fdsnURL, overwrite=False, inv=inv)
+#wrappers.FDSN_to_SDS_daily_wrapper(startt-3600, endt, SDS_TOP, trace_ids=trace_ids, \
+#        fdsnURL=fdsnURL, overwrite=False, inv=inv)
 wrappers.SDS_to_ICEWEB_wrapper(startt, endt, SDS_TOP, sampling_interval=60.0, sourcelat=centerlat, \
-            sourcelon=centerlon, inv=inv, trace_ids=trace_ids, overwrite=True, verbose=False, sgrammins=10, \
+            sourcelon=centerlon, inv=inv, trace_ids=trace_ids, overwrite=False, verbose=True, sgrammins=10, \
                 equal_scale=True, dbscale=True, clim=[1e-8, 1e-5], subnet=subnet, SGRAM_TOP=SGRAM_TOP)
