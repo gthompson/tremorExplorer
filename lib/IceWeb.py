@@ -505,13 +505,19 @@ class ReducedDisplacementObj():
         self.stream = Stream()
         self.metric = metric
 
+        try:
+            r = [tr.stats.distance for tr in st]
+            if not r:
+                InventoryTools.attach_station_coordinates_from_inventory(inv, st)
+                InventoryTools.attach_distance_to_stream(st, sourcelat, sourcelon) 
+            if not r:
+                f"Cannot determine distances from source to stations"
+                return
+        except:
+            f"Cannot determine distances from source to stations"
+            return           
 
-
-        if units=='Counts' and inv:
-            if not sourcelat or not sourcelon:
-                print('Need a seismic source location to compute distances.')
-            InventoryTools.attach_station_coordinates_from_inventory(inv, st)
-            InventoryTools.attach_distance_to_stream(st, sourcelat, sourcelon)            
+        if units=='Counts' and inv: # try to correct          
             for tr in st:
                 if tr.stats.channel[2] in 'ENZ' : # filter seismic channels only
                     print('Processing %s' % tr.id)
@@ -523,6 +529,7 @@ class ReducedDisplacementObj():
                             tr.trim(starttime=startt, endtime=endt)
         elif units=='m':
                 print('Units suggest this is already a displacement seismogram. No filtering or instrument correction performed.')
+                
         else:
                 print('Cannot compute Drs. Need to know units.')
                 return

@@ -331,3 +331,157 @@ def SDS_to_ICEWEB_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=15.0, \
 
         startOfRsamTimeWindow+=rsamStepSize # add 1 day 
         
+
+
+
+
+
+
+def SDS_to_picklefile_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=None, \
+        zerophase=False, corners=2, sampling_interval=60.0, sourcelat=None, \
+            sourcelon=None, inv=None, trace_ids=None, overwrite=True, verbose=False, timeWindowMinutes=10,  timeWindowOverlapMinutes=5, PICKLEDIR='.', subnet='unknown'):
+    '''
+    Load Stream from SDS archive and create pickle files each containing an instrument-corrected Stream object, including distance metrics.This pickle filesRSAM by default is the mean absolute value in each 60-s window.
+    
+    For each timewindow, two pickle files are saved: a Stream containing a velocity seismogram, and a Stream containing a displacement seismogram. 
+    Velocity seismogram is used for RSAM and spectrograms. Displacement seismogram is used for Reduced Displacement.
+
+        Parameters:
+            startt (UTCDateTime): An ObsPy UTCDateTime marking the start date/time of the data request.
+            endt (UTCDateTime)  : An ObsPy UTCDateTime marking the end date/time of the data request.
+            SDS_TOP (str)       : The path to the SDS directory structure.
+
+        Optional Name-Value Parameters:
+            trace_ids (List)    : A list of N.S.L.C strings. Default None. If given, only these trace ids will be read from SDS archive.
+            inv (Inventory)     : An ObsPy Inventory object. Default None. 
+            sourcelat (float)   : Decimal degrees latitude for assumed seismic point source. Default None.
+            sourcelon (float)   : Decimal degrees longitude for assumed seismic point source. Default None.
+            freqmin (float) : Bandpass minimum. Default 0.5 Hz.
+            freqmax (float) : Bandpass maximum. Default None (highpass only)
+            zerophase (bool) : If True, a two-way pass, acausal, zero-phase bandpass filter is applied to the data. Default False, which is a causal one-way filter.
+            corners (int) : Filter is applied this many times. Default 2.
+            sampling_interval (float) : bin size (in seconds) for binning data to compute RSAM.
+            overwrite (bool) : If True, overwrite existing data in RSAM archive.
+            verbose (bool) : If True, additional output is genereated for troubleshooting.
+            timeWindowMinutes (int) : number of minutes for each file. Default: 10
+            timeWindowOverlapMinutes (int) : number of extra minutes to load before tapering and filtering. Trimmed off at end of process. Default: 5
+            PICKLEDIR (str) : Directory to save pickle files too
+            subnet (str) : a label to use for this particular set of N.S.L.C.'s
+
+
+    '''   
+    taperSecs = timeWindowOverlapMinutes * 60
+    startOfTimeWindow = startt
+    while startOfTimeWindow < endt:
+        f"Processing {startOfTimeWindow}"
+        endOfTimeWindow = startOfTimeWindow + timeWindowMinutes * 60
+        # read from SDS
+        thisSDSobj = SDS.SDSobj(SDS_TOP) 
+        
+        if inv: # with inventory CSAM, Drs, and spectrograms
+
+            thisSDSobj.read(startOfTimeWindow-taperSecs, endOfTimeWindow+taperSecs, speed=2, trace_ids=trace_ids)
+            st = thisSDSobj.stream
+
+            InventoryTools.attach_station_coordinates_from_inventory(inv, st)
+            InventoryTools.attach_distance_to_stream(st, sourcelat, sourcelon) 
+            r = [tr.stats.distance for tr in st]
+            if verbose:
+                f"SDS Stream: {st}"
+                f"Distances: {r}"
+            st = order_traces_by_distance(st, r, assert_channel_order=True)
+            print(st, [tr.stats.distance for tr in st])
+            #VEL = order_traces_by_distance(VEL, r, assert_channel_order=True)
+
+            pre_filt = [freqmin/1.2, freqmin, freqmax, freqmax*1.2]
+            for seismogramType in ['VEL', 'DISP']:
+                if verbose:
+                    f"Correcting to {seismogramType} seismogram"
+                cst = st.copy().select(channel="*H*").remove_response(output=seismogramType, inventory=inv, plot=verbose, pre_filt=pre_filt, water_level=60)
+                if verbose:
+                    f"Trimming to 24-hour day from {startOfTimeWindow} to {endOfTimeWindow}"
+                cst.trim(starttime=startOfTimeWindow, endtime=endOfTimeWindow)
+                picklebase = '%s_%s_%s.pickle' % (subnet, startOfTimeWindow.strftime('%Y%m%d-%H%M'), seismogramType)
+                picklefile = os.path.join(PICKLEDIR, picklebase)
+                cst.write(picklefile, format='PICKLE')
+
+                del cst, picklefile, picklebase
+
+            del st, r, pre_filt
+        startOfTimeWindow = endOfTimeWindow
+
+def sorted_ls(path):
+    mtime = lambda f: os.stat(os.path.join(path, f)).st_mtime
+    return list(sorted(os.listdir(path), key=mtime))    
+
+def picklefileGobblerToIceweb(PICKLEDIR, verbose=False, rsamSamplingIntervalSeconds=60, RSAM_SDS_TOP='.', SGRAM_TOP='.', dbscale=True, \
+                              equal_scale=True, clim=[1e-8,1e-5], fmin=0.5, fmax=None, overwrite=False):
+    '''
+    Gobble up any picklefiles found and process them into IceWeb products.
+
+    The advantage of decoupling the picklefile creation from product generation is that other processes can put picklefiles in the same directory, 
+    regardless of datasource (FDSN, SDS, EWS/WWS/OWD, Seedlink, Antelope archive, Seisan archive, etc.) and regardless of whether they are running
+    on real-time or archived data. They will be gobbled and then deleted. The problem would arise if picklefiles are created much faster than they
+    can be consumed by the gobbler. In that case, we need to extend this function to allow multiple gobblers at the same time without stepping on 
+    each other (run multiple instances of this function at the same time). This would come close to mimicing the IceWeb real-time system that was
+    running at UAF 2009-2013 (I only noticed it stopped running in 2023).
+
+    '''
+
+    while True:
+          picklefilelist = sorted_ls(PICKLE_DIR) # make list of picklefiles
+          if len(filelist)>0:
+            picklefile = filelist[0]
+            f"Processing {picklefile}"
+            if '.pickle' in picklefile:
+                st = obspy.read(picklefile, format='PICKLE')
+                if isinstance(st, Stream) and len(st)>0 and st[0].stats.npts>1000:
+                    pass
+                else:
+                    f"Not a valid Stream object: {st}"
+                    os.remove(picklefile) # delete file
+                    continue # next while loop iteration
+
+
+                ####################################
+                if 'VEL' in picklefile: 
+                    
+                    # compute & save instrument-corrected RSAM
+                    if verbose:
+                        f"Computing corrected RSAM"
+                    thisRSAMobj = IceWeb.RSAMobj(st=VEL, sampling_interval=rsamSamplingIntervalSeconds, verbose=verbose,  units='m/s', absolute=True)
+                    if verbose:
+                        f"Saving corrected RSAM to SDS"
+                    thisRSAMobj.write(RSAM_SDS_TOP) # write RSAM to an SDS-like structure
+                    del thisRSAMobj
+
+                    # Spectrogram
+                    startt = st[0].stats.starttime
+                    #endt = st[0].stats.endtime
+                    sgramdir = os.path.join(SGRAM_TOP, st[0].stats.network, startt.strftime('%Y'), startt.strftime('%j'))
+                    sgrambase = '%s_%s.png' % (subnet, startt.strftime('%Y%m%d-%H%M'))
+                    sgramfile = os.path.join(sgramdir, sgrambase)
+                    if not os.path.isdir(sgramdir):
+                        os.makedirs(sgramdir)
+                    if not os.path.isfile(sgramfile) or overwrite:
+                        f"Output file: {sgramfile}"
+                        spobj = IceWeb.icewebSpectrogram(stream=st)
+                        spobj.plot(outfile=sgramfile, dbscale=dbscale, title=sgramfile, equal_scale=equal_scale, clim=clim, fmin=freqmin, fmax=freqmax)
+                        del sbobj
+                    plt.close('all')
+
+                    del startt, sgramdir, sgrambase, sgramfile
+
+                ###########################################
+                elif 'DISP' in picklefile:
+                     # compute/write reduced displacement
+                    if verbose:
+                        f"Computing DRS"
+                    thisDRSobj = IceWeb.ReducedDisplacementObj(st=DISP, sampling_interval=rsamSamplingIntervalSeconds, verbose=verbose, units='m' )
+                    if verbose:
+                        f"Writing DRS to SDS"
+                    thisDRSobj.write(RSAM_SDS_TOP) # write Drs to an SDS-like structure
+                    del thisDRSobj
+                
+                # delete file
+                os.remove(picklefile)
