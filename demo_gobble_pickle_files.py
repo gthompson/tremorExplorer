@@ -28,10 +28,10 @@ centerlon=177.1825
 searchRadiusDeg=0.25
 fdsnURL = "GEONET"
 subnet = 'Whakaari'
-
+icewebdb = os.path.join(PRODUCTS_TOP, 'iceweb_sqlite3.db')
 startt = UTCDateTime(2019,1,1)
 endt = UTCDateTime(2019,12,12)
 inv = FDSNtools.get_inventory(fdsnURL, startt, endt, centerlat, centerlon, searchRadiusDeg, network='NZ', station='*', channel='HHZ')
 wrappers.picklefileGobblerToIceweb(PICKLEDIR, verbose=True, rsamSamplingIntervalSeconds=60, RSAM_SDS_TOP=SDS_TOP, SGRAM_TOP=SGRAM_TOP, dbscale=True, \
-                              equal_scale=True, clim=[1e-8,1e-5], fmin=0.5, fmax=20.0, overwrite=False)
+         equal_scale=True, clim=[1e-8,1e-5], fmin=0.5, fmax=20.0, overwrite=False, dbpath=icewebdb)
 

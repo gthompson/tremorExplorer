@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from obspy.core import Stream, read
+from obspy.core import Stream, read, UTCDateTime
 import SDS
 import FDSNtools
 import InventoryTools
@@ -335,11 +335,6 @@ def SDS_to_ICEWEB_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=15.0, \
         startOfRsamTimeWindow+=rsamStepSize # add 1 day 
         
 
-
-
-
-
-
 def SDS_to_picklefile_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=None, \
         zerophase=False, corners=2, sampling_interval=60.0, sourcelat=None, \
         sourcelon=None, inv=None, trace_ids=None, overwrite=True, verbose=False, \
@@ -378,17 +373,20 @@ def SDS_to_picklefile_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=None, 
     if os.path.isfile(dbpath):
         conn = create_connection(dbpath)
     else:
-        conn = create_iceweb_index_db(dbpath)
+        conn = create_iceweb_db(dbpath)
     taperSecs = timeWindowOverlapMinutes * 60
     startOfTimeWindow = startt
     while startOfTimeWindow < endt:
         endOfTimeWindow = startOfTimeWindow + timeWindowMinutes * 60
-        picklebase = '%s_%s_%s.pickle' % (subnet, startOfTimeWindow.strftime('%Y%m%d-%H%M'), seismogramType)
-        picklefile = os.path.join(PICKLEDIR, picklebase)
-        row = select_picklefiles_row(conn, picklebase):
+        startStr = startOfTimeWindow.isoformat()
+        endStr = endOfTimeWindow.isoformat()
+
+        row = select_products_row(conn, subnet, startStr, endStr)
         if row: # row exists - so file exists, or previously existed
             startOfTimeWindow = endOfTimeWindow
             continue # nothing to do
+        print('\n')
+        print(f"Time now: {UTCDateTime.now().isoformat()}")
         print(f"Processing {startOfTimeWindow}")
         
         # read from SDS
@@ -417,10 +415,11 @@ def SDS_to_picklefile_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=None, 
                 if verbose:
                     print(f"Trimming to 24-hour day from {startOfTimeWindow} to {endOfTimeWindow}")
                 cst.trim(starttime=startOfTimeWindow, endtime=endOfTimeWindow)
-
-                if picklefile_lock(conn, picklebase, subnet, startOfTimeWindow.isoformat(), endOfTimeWindow.isoformat(), SDS_TOP):
+                picklebase = '%s_%s_%s_%s.pickle' % (subnet, startStr, endStr, seismogramType)
+                picklefile = os.path.join(PICKLEDIR, picklebase)
+                if lock_row(conn, subnet, startStr, endStr, create=True):
                     cst.write(picklefile, format='PICKLE')
-                    picklefile_unlock(conn, picklebase)
+                    unlock_row(conn, subnet, startStr, endStr)
                 del cst, picklefile, picklebase
 
             del st, r, pre_filt
@@ -448,17 +447,22 @@ def picklefileGobblerToIceweb(PICKLEDIR, verbose=False, rsamSamplingIntervalSeco
     if os.path.isfile(dbpath):
         conn = create_connection(dbpath)
     else:
-        conn = create_iceweb_index_db(dbpath)
+        conn = create_iceweb_db(dbpath)
 
     while True:
-          counter=0
-          picklefilelist = sorted_ls(PICKLEDIR) # make list of picklefiles
-          #print(f"{picklefilelist}")
-          if len(picklefilelist)>0:
-            counter=0
-            picklefile = os.path.join(PICKLEDIR, picklefilelist[0])
-            print(f"Processing {picklefile}")
+        picklefilelist = sorted_ls(PICKLEDIR) # make list of picklefiles
+        for picklefilebase in picklefilelist:
+            picklefile = os.path.join(PICKLEDIR, picklefilebase)
+            
             if '.pickle' in picklefile:
+                print("\n")
+                print(f"Time now: {UTCDateTime.now().isoformat()}")
+                print(f"Processing {picklefile}")
+                (subnet, startStr, endStr, ext) = picklefilebase.split(sep='_')
+                if not lock_row(conn, subnet, startStr, endStr):
+                    print('Skipping')
+                    continue # skip this one for later, since cannot get a lock
+
                 try:
                     st = read(picklefile, format='PICKLE')
                 except Exception as e:
@@ -472,60 +476,67 @@ def picklefileGobblerToIceweb(PICKLEDIR, verbose=False, rsamSamplingIntervalSeco
                     os.remove(picklefile) # delete file
                     continue # next while loop iteration
 
+                # SCAFFOLD: may not need startt endt in this section since can directly use startStr, endStr
+                startt = st[0].stats.starttime
+                endt = st[0].stats.endtime
+                #subnet = os.path.basename(picklefile).split(sep='_')[0]
+                row = select_products_row(conn, subnet, startStr, endStr)
+                if row:
+                    (subnet, startStr, endStr, datasource, rsamDone, drsDone, sgramDone, specParamsDone, locked) = row 
+                else:
+                    raise Exception("No corresponding row found in products table. This should be impossible!")
 
                 ####################################
                 if 'VEL' in picklefile: 
                     
                     # compute & save instrument-corrected RSAM
-                    if verbose:
-                        print(f"Computing corrected RSAM")
-                    thisRSAMobj = IceWeb.RSAMobj(st=st, sampling_interval=rsamSamplingIntervalSeconds, verbose=verbose,  units='m/s', absolute=True)
-                    if verbose:
-                        print(f"Saving corrected RSAM to SDS")
-                    thisRSAMobj.write(RSAM_SDS_TOP) # write RSAM to an SDS-like structure
-                    del thisRSAMobj
+                    if not rsamDone:
+                        if verbose:
+                            print(f"Computing corrected RSAM")
+                        thisRSAMobj = IceWeb.RSAMobj(st=st, sampling_interval=rsamSamplingIntervalSeconds, verbose=verbose,  units='m/s', absolute=True)
+                        if verbose:
+                            print(f"Saving corrected RSAM to SDS")
+                        thisRSAMobj.write(RSAM_SDS_TOP) # write RSAM to an SDS-like structure
+                        del thisRSAMobj
+                        update_products_row(conn, subnet, startStr, endStr, field='rsamDone', value=True)
 
                     # Spectrogram
-                    startt = st[0].stats.starttime
-                    #endt = st[0].stats.endtime
-                    sgramdir = os.path.join(SGRAM_TOP, st[0].stats.network, startt.strftime('%Y'), startt.strftime('%j'))
-                    sgrambase = '%s_%s.png' % (subnet, startt.strftime('%Y%m%d-%H%M'))
-                    sgramfile = os.path.join(sgramdir, sgrambase)
-                    if not os.path.isdir(sgramdir):
-                        os.makedirs(sgramdir)
-                    if not os.path.isfile(sgramfile) or overwrite:
-                        print(f"Output file: {sgramfile}")
-                        spobj = IceWeb.icewebSpectrogram(stream=st)
-                        spobj.plot(outfile=sgramfile, dbscale=dbscale, title=sgramfile, equal_scale=equal_scale, clim=clim, fmin=fmin, fmax=fmax)
-                        del spobj
+                    if not sgramDone:
+                        sgramdir = os.path.join(SGRAM_TOP, st[0].stats.network, startt.strftime('%Y'), startt.strftime('%j'))
+                        sgrambase = '%s_%s.png' % (subnet, startt.strftime('%Y%m%d-%H%M'))
+                        sgramfile = os.path.join(sgramdir, sgrambase)
+                        if not os.path.isdir(sgramdir):
+                            os.makedirs(sgramdir)
+                        if not os.path.isfile(sgramfile) or overwrite:
+                            print(f"Output file: {sgramfile}")
+                            spobj = IceWeb.icewebSpectrogram(stream=st)
+                            spobj.plot(outfile=sgramfile, dbscale=dbscale, title=sgramfile, equal_scale=equal_scale, clim=clim, fmin=fmin, fmax=fmax)
+                            del spobj
+                            update_products_row(conn, subnet, startStr, endStr, field='sgramDone', value=True)
                     plt.close('all')
 
                     del startt, sgramdir, sgrambase, sgramfile
 
                 ###########################################
                 elif 'DISP' in picklefile:
-                     # compute/write reduced displacement
-                    if verbose:
-                        print(f"Computing DRS")
-                    thisDRSobj = IceWeb.ReducedDisplacementObj(st=st, sampling_interval=rsamSamplingIntervalSeconds, verbose=verbose, units='m' )
-                    if verbose:
-                        print(f"Writing DRS to SDS")
-                    thisDRSobj.write(RSAM_SDS_TOP) # write Drs to an SDS-like structure
-                    del thisDRSobj
+                    if not drsDone:
+                        # compute/write reduced displacement
+                        if verbose:
+                            print(f"Computing DRS")
+                        thisDRSobj = IceWeb.ReducedDisplacementObj(st=st, sampling_interval=rsamSamplingIntervalSeconds, verbose=verbose, units='m' )
+                        if verbose:
+                            print(f"Writing DRS to SDS")
+                        thisDRSobj.write(RSAM_SDS_TOP) # write Drs to an SDS-like structure
+                        del thisDRSobj
+                        update_products_row(conn, subnet, startStr, endStr, field='drsDone', value=True)
                 del st
                 
                 # delete file
+                unlock_row(conn, subnet, startStr, endStr)
                 os.remove(picklefile)
 
                 gc.collect()
-
-          else:
-              if counter==0:
-              	f"Waiting for new pickle file"  
-              else:
-                print('.', end='')
-                
-              counter += 1    
+  
 
 
 
@@ -562,20 +573,14 @@ def create_iceweb_db(dbpath):
     sql_create_products_table = """ CREATE TABLE IF NOT EXISTS products (
                                         subnet text NOT NULL,
                                         startTime integer NOT NULL,
-                                        endTime integer,
-                                        rsamDone integer,
-                                        drsDone integer,
-                                        sgramDone integer,
-                                        PRIMARY KEY (subnet, startTime)
-                                    ); """
-
-    sql_create_picklefiles_table = """ CREATE TABLE IF NOT EXISTS picklefiles (
-                                        picklebase text PRIMARY KEY,
-                                        subnet text NOT NULL,
-                                        startTime integer NOT NULL,
-                                        endTime integer,
+                                        endTime integer NOT NULL,
                                         datasource text,
-                                        locked integer
+                                        rsamDone integer DEFAULT False,
+                                        drsDone integer DEFAULT False,
+                                        sgramDone integer DEFAULT False,
+                                        specParamsDone integer DEFAULT False,
+                                        locked integer DEFAULT False,
+                                        PRIMARY KEY (subnet, startTime, endTime)
                                     ); """
 
 
@@ -587,79 +592,44 @@ def create_iceweb_db(dbpath):
     if conn is not None:
         # create index table
         create_table(conn, sql_create_products_table)
-        create_table(conn, sql_create_picklefiles_table)
     else:
         print("Error! cannot create the database connection.")
-        #create_table(conn, sql_create_products_table)
     return conn
+# subnet, startTime, endTime, datasource, rsamDone, drsDone, sgramDone, specParamsDone, locked
 
-def insert_picklefiles_row(conn, row):
-    """
-    Create a new row into the picklefiles table
-    :param conn:
-    :param row
-    :return: did it work (True, False)
-    """
-    sql = ''' INSERT INTO picklefiles(picklebase, subnet, startTime, endTime, datasource, locked, processed, deleted)
-              VALUES(?,?,?,?,?,?,?,?) '''
-    cur = conn.cursor()
-    try:
-        cur.execute(sql, row)
-        conn.commit()
-        return True
-    except Exception as e:
-        print(e)
-        return False
 
-def insert_products_row(conn, row):
+def insert_products_row(conn, subnet, startTime, endTime):
     """
     Create a new row into the products table
     :param conn:
     :param row
     :return: did it work (True, False)
     """
-    sql = ''' INSERT INTO products(subnet, startTime, endTime, rsamDone, drsDone, sgramDone)
-              VALUES(?,?,?,?,?,?) '''
+    sql = ''' INSERT INTO products(subnet, startTime, endTime)
+              VALUES(?,?,?) '''
     cur = conn.cursor()
     try:
-        cur.execute(sql, row)
+        cur.execute(sql, (subnet, startTime, endTime) )
         conn.commit()
         return True
     except Exception as e:
         print(e)
         return False
 
-def select_picklefiles_row(conn, picklebase):
-    """
-    Query tasks by subnet, startTime
-    :param conn: the Connection object
-    :param picklebase:
-    :return:
 
-    Can use this to check if locked
-    """
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM picklefiles WHERE picklebase=?", (picklebase,))
-
-    rows = cur.fetchall()
-    if len(rows)==1:
-        print(rows[0])
-        return rows[0] # a tuple
-    elif len(rows)==0:
-        return False
-
-def select_products_row(conn, subnet, startTime):
+def select_products_row(conn, subnet, startTime, endTime):
     """
     Query tasks by subnet, startTime
     :param conn: the Connection object
     :param subnet:
     :param startTime:
+    :param endTime
     :return:
 
     Can use this to check if rsamDone, drsDone, sgramDone, etc.
     """
     cur = conn.cursor()
-    cur.execute("SELECT * FROM products WHERE subnet=? AND startTime=?", (subnet,startTime))
+    cur.execute("SELECT * FROM products WHERE subnet=? AND startTime=? AND endTime=?", (subnet, startTime, endTime))
 
     rows = cur.fetchall()
     if len(rows)==1:
@@ -668,22 +638,8 @@ def select_products_row(conn, subnet, startTime):
     elif len(rows)==0:
         return False
 
-def update_picklefiles_row(conn, picklebase, field='locked', value=True):
-    """
-    Query tasks by subnet, startTime
-    :param conn: the Connection object
-    :param picklebase:
-    :return:
-    """
-    try:
-        cur = conn.cursor()
-        cur.execute(f"UPDATE picklefiles set {field}=? WHERE picklebase=?", (value, picklebase))
-        conn.commit()
-        return True
-    except:
-        return False
 
-def update_products_row(conn, subnet, startTime, field='rsamDone', value=True):
+def update_products_row(conn, subnet, startTime, endTime, field='rsamDone', value=True):
     """
     Query tasks by subnet, startTime
     :param conn: the Connection object
@@ -693,50 +649,53 @@ def update_products_row(conn, subnet, startTime, field='rsamDone', value=True):
     """
     try:
         cur = conn.cursor()
-        cur.execute(f"UPDATE products set {field}=? WHERE subnet=? AND startTime=?", (value, subnet, startTime))
+        cur.execute(f"UPDATE products set {field}=? WHERE subnet=? AND startTime=? AND endTime=?", (value, subnet, startTime, endTime))
         conn.commit()
+        return True
     except:
         return False
 
-def picklefile_lock(conn, picklebase, subnet, startTime, endTime, datasource, processed=False, deleted=False):
-    row = select_picklefiles_row(conn, picklebase)
+def lock_row(conn, subnet, startTime, endTime, create=False):
+    row = select_products_row(conn, subnet, startTime, endTime)
+    picklebase = f"{subnet}_{startTime}_{endTime}"
     if row:
-        locked = row[-1]
+        locked = row[-2]
         if locked:
             print(f"{picklebase} already locked. Cannot get a lock")
             return False
         else:
-            if update_picklefiles_row(conn, picklebase, field='locked', value=True): 
+            if update_products_row(conn, subnet, startTime, endTime, field='locked', value=True): 
             	print(f"Got a lock on {picklebase}")
             	return True
             else:
                 print(f"Failed trying to lock {picklebase}")
                 return False
 
-    else: # row does not exist
-        if subnet and startTime and endTime and datasource:
-            row = (picklebase, subnet, startTime, endTime, datasource, True, processed, deleted)
-            if insert_picklefiles_row(conn, row):
-                print(f"Inserted new row and got a lock on {picklebase}")
-                return True
+    elif create: # row does not exist
+        if insert_products_row(conn, subnet, startTime, endTime):
+            print(f"Inserted new row for {picklebase}")
+            if update_products_row(conn, subnet, startTime, endTime, field='locked', value=True): 
+            	print(f"Got a lock on {picklebase}")
+            	return True
             else:
-                print(f"Inserting {picklebase} failed")
+                print(f"Failed trying to lock {picklebase}")
                 return False
         else:
-            print(f"Cannot insert {picklebase}")
+            print(f"Inserting {picklebase} failed")
             return False
+    else:
+        print(f"Cannot lock {picklebase} as it does not exist")
+        return False
 
-def picklefile_unlock(conn, picklebase, processed=False, deleted=False):
-    row = select_picklefiles_row(conn, picklebase)
+
+def unlock_row(conn, subnet, startTime, endTime):
+    row = select_products_row(conn, subnet, startTime, endTime)
+    picklebase = f"{subnet}_{startTime}_{endTime}"
     if row:
         locked = row[-1]
         if locked:
-            if update_picklefiles_row(conn, picklebase, field='locked', value=False):
+            if update_products_row(conn, subnet, startTime, endTime, field='locked', value=False):
                 print(f"{picklebase} unlocked")
-                if processed:
-                    update_picklefiles_row(conn, picklebase, field='processed', value=True)
-                if deleted:
-                    update_picklefiles_row(conn, picklebase, field='deleted', value=True)
                 return True
             else:
                 print(f"Failed to unlock {picklebase}")
@@ -749,7 +708,7 @@ def picklefile_unlock(conn, picklebase, processed=False, deleted=False):
         print(f"{picklebase} not in table. cannot unlock")
         return -1
 
-        
+def read_configfile():        
 
 if __name__ == '__main__':
     dbpath = '/RAIDZ/IceWeb/iceweb_sqllite3.db'
@@ -761,14 +720,14 @@ if __name__ == '__main__':
     datasource = 'SDS'
     if conn is not None:
         indexrow = ('Shishaldin', stime, etime, False, False, False)
-        diditwork = insert_products_row(conn, indexrow) # diditwork False if unique row already exists
-        matchingrow = select_products_row(conn, subnet, stime)
-        update_products_row(conn, subnet, stime, field='rsamDone')
-        matchingrow = select_products_row(conn, subnet, stime)
+        diditwork = insert_products_row(conn, subnet, stime, etime) # diditwork False if unique row already exists
+        matchingrow = select_products_row(conn, subnet, stime, etime)
+        update_products_row(conn, subnet, stime, etime, field='rsamDone', value=True)
+        matchingrow = select_products_row(conn, subnet, stime, etime)
         update_products_row(conn, subnet, stime, field='sgramDone')
-        matchingrow = select_products_row(conn, subnet, stime)
+        matchingrow = select_products_row(conn, subnet, stime, etime)
 
-        picklefile_lock(conn, picklebase, subnet, stime, etime, datasource)
-        picklefile_unlock(conn, picklebase, subnet, stime, etime, datasource)
+        picklefile_lock(conn, subnet, stime, etime)
+        picklefile_unlock(conn, subnet, stime, etime)
         conn.close()
 
