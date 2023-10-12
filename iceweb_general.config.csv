@@ -1,0 +1,12 @@
+Variable,Value
+PRODUCTS_TOP,/RAIDZ/IceWeb
+SDS_TOP,$PRODUCTS_TOP/SDS
+RSAM_SDS_TOP,$SDS_TOP
+SGRAM_TOP,$PRODUCTS_TOP/sgram10min
+DBPATH,$PRODUCTS_TOP/iceweb_sqlite3.db
+freqmin,0.5
+freqmax,20
+timeWindowMinutes,10
+colourMapMin,1.00E-08
+colourMapMax,1.00E-05
+samplingInterval,60

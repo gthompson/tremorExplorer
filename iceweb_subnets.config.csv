@@ -1,0 +1,7 @@
+subnet,datasource,url,startdate,enddate,done
+Spurr,WWS,pubavo1.wr.usgs.gov,None,None,FALSE
+Redoubt,WWS,pubavo1.wr.usgs.gov,None,None,FALSE
+Iliamna,WWS,pubavo1.wr.usgs.gov,None,None,FALSE
+Augustine,WWS,pubavo1.wr.usgs.gov,None,None,FALSE
+Whakaari,FDSN,GEONET,2019/12/01,2012/12/11,FALSE
+Montserrat,SDS,/raid/data/SDS,None,None,FALSE

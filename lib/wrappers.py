@@ -8,6 +8,7 @@ import InventoryTools
 import IceWeb
 import gc
 import sqlite3
+import pandas as pd
 
 def FDSN_to_SDS_daily_wrapper(startt, endt, SDS_TOP, centerlat=None, centerlon=None, searchRadiusDeg=None, trace_ids=None, \
         fdsnURL="http://service.iris.edu", overwrite=True, inv=None):
@@ -708,7 +709,185 @@ def unlock_row(conn, subnet, startTime, endTime):
         print(f"{picklebase} not in table. cannot unlock")
         return -1
 
-def read_configfile():        
+def SDS_to_Stream_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=None, \
+        zerophase=False, corners=2, sampling_interval=60.0, sourcelat=None, \
+        sourcelon=None, inv=None, trace_ids=None, overwrite=True, verbose=False, \
+        timeWindowMinutes=10,  timeWindowOverlapMinutes=5, subnet='unknown', \
+        dbpath='iceweb_sqlite3.db'):
+    '''
+    Load Stream from SDS archive, instrument-correct it, add distance metrics.
+    
+    For each timewindow, two Stream objects are created: a Stream containing a velocity seismogram, and a Stream containing a displacement seismogram. 
+    Velocity seismogram is used for RSAM and spectrograms. Displacement seismogram is used for Reduced Displacement.
+
+        Parameters:
+            startt (UTCDateTime): An ObsPy UTCDateTime marking the start date/time of the data request.
+            endt (UTCDateTime)  : An ObsPy UTCDateTime marking the end date/time of the data request.
+            SDS_TOP (str)       : The path to the SDS directory structure.
+
+        Optional Name-Value Parameters:
+            trace_ids (List)    : A list of N.S.L.C strings. Default None. If given, only these trace ids will be read from SDS archive.
+            inv (Inventory)     : An ObsPy Inventory object. Default None. 
+            sourcelat (float)   : Decimal degrees latitude for assumed seismic point source. Default None.
+            sourcelon (float)   : Decimal degrees longitude for assumed seismic point source. Default None.
+            freqmin (float) : Bandpass minimum. Default 0.5 Hz.
+            freqmax (float) : Bandpass maximum. Default None (highpass only)
+            zerophase (bool) : If True, a two-way pass, acausal, zero-phase bandpass filter is applied to the data. Default False, which is a causal one-way filter.
+            corners (int) : Filter is applied this many times. Default 2.
+            sampling_interval (float) : bin size (in seconds) for binning data to compute RSAM.
+            overwrite (bool) : If True, overwrite existing data in RSAM archive.
+            verbose (bool) : If True, additional output is genereated for troubleshooting.
+            timeWindowMinutes (int) : number of minutes for each file. Default: 10
+            timeWindowOverlapMinutes (int) : number of extra minutes to load before tapering and filtering. Trimmed off at end of process. Default: 5
+            subnet (str) : a label to use for this particular set of N.S.L.C.'s
+
+
+    '''   
+    if os.path.isfile(dbpath):
+        conn = create_connection(dbpath)
+    else:
+        conn = create_iceweb_db(dbpath)
+    taperSecs = timeWindowOverlapMinutes * 60
+    startOfTimeWindow = startt
+    while startOfTimeWindow < endt:
+        endOfTimeWindow = startOfTimeWindow + timeWindowMinutes * 60
+        startStr = startOfTimeWindow.isoformat()
+        endStr = endOfTimeWindow.isoformat()
+
+        row = select_products_row(conn, subnet, startStr, endStr)
+        if row: # row exists - so file exists, or previously existed
+            startOfTimeWindow = endOfTimeWindow
+            continue # nothing to do
+        print('\n')
+        print(f"Time now: {UTCDateTime.now().isoformat()}")
+        print(f"Processing {startOfTimeWindow}")
+        
+        # read from SDS
+        thisSDSobj = SDS.SDSobj(SDS_TOP) 
+        
+        if inv: # with inventory CSAM, Drs, and spectrograms
+
+            thisSDSobj.read(startOfTimeWindow-taperSecs, endOfTimeWindow+taperSecs, speed=2, trace_ids=trace_ids)
+            st = thisSDSobj.stream
+
+            InventoryTools.attach_station_coordinates_from_inventory(inv, st)
+            InventoryTools.attach_distance_to_stream(st, sourcelat, sourcelon) 
+            r = [tr.stats.distance for tr in st]
+            if verbose:
+                print(f"SDS Stream: {st}")
+                print(f"Distances: {r}")
+            st = order_traces_by_distance(st, r, assert_channel_order=True)
+            print(st, [tr.stats.distance for tr in st])
+            #VEL = order_traces_by_distance(VEL, r, assert_channel_order=True)
+
+            pre_filt = [freqmin/1.2, freqmin, freqmax, freqmax*1.2]
+            for seismogramType in ['VEL', 'DISP']:
+                if verbose:
+                    print(f"Correcting to {seismogramType} seismogram")
+                cst = st.copy().select(channel="*H*").remove_response(output=seismogramType, inventory=inv, plot=verbose, pre_filt=pre_filt, water_level=60)
+                if verbose:
+                    print(f"Trimming to 24-hour day from {startOfTimeWindow} to {endOfTimeWindow}")
+                cst.trim(starttime=startOfTimeWindow, endtime=endOfTimeWindow)
+                if lock_row(conn, subnet, startStr, endStr, create=True):
+                    StreamToIcewebProducts(cst, seismogramType, conn, subnet, startStr, endStr) 
+                    unlock_row(conn, subnet, startStr, endStr)
+                del cst
+
+            del st, r, pre_filt
+        gc.collect()
+        startOfTimeWindow = endOfTimeWindow
+    conn.close()
+    
+def StreamToIcewebProducts(st, seismogramType, conn, subnet, startStr, endStr, verbose=False, rsamSamplingIntervalSeconds=60, RSAM_SDS_TOP='.', SGRAM_TOP='.', dbscale=True, \
+                              equal_scale=True, clim=[1e-8,1e-5], fmin=0.5, fmax=None, overwrite=False):
+    '''
+    Process Stream into IceWeb products.
+
+    '''
+
+    print("\n")
+    print(f"Time now: {UTCDateTime.now().isoformat()}")
+    if not lock_row(conn, subnet, startStr, endStr):
+        print('Skipping. Cannot lock row')
+        return
+        
+    if isinstance(st, Stream) and len(st)>0 and st[0].stats.npts>1000:
+        pass
+    else:
+        print(f"Not a valid Stream object: {st}")
+        return
+
+    startt = st[0].stats.starttime
+    endt = st[0].stats.endtime
+    row = select_products_row(conn, subnet, startStr, endStr)
+    if row:
+        (subnet, startStr, endStr, datasource, rsamDone, drsDone, sgramDone, specParamsDone, locked) = row
+    else:
+        raise Exception("No corresponding row found in products table. This should be impossible!")
+
+    ####################################
+    if seismogramType=='VEL':
+
+        # compute & save instrument-corrected RSAM
+        if not rsamDone:
+            if verbose:
+                print(f"Computing corrected RSAM")
+            thisRSAMobj = IceWeb.RSAMobj(st=st, sampling_interval=rsamSamplingIntervalSeconds, verbose=verbose,  units='m/s', absolute=True)
+            if verbose:
+                print(f"Saving corrected RSAM to SDS")
+            thisRSAMobj.write(RSAM_SDS_TOP) # write RSAM to an SDS-like structure
+            del thisRSAMobj
+            update_products_row(conn, subnet, startStr, endStr, field='rsamDone', value=True)
+
+        # Spectrogram
+        if not sgramDone:
+            sgramdir = os.path.join(SGRAM_TOP, st[0].stats.network, startt.strftime('%Y'), startt.strftime('%j'))
+            sgrambase = '%s_%s.png' % (subnet, startt.strftime('%Y%m%d-%H%M'))
+            sgramfile = os.path.join(sgramdir, sgrambase)
+            if not os.path.isdir(sgramdir):
+                os.makedirs(sgramdir)
+            if not os.path.isfile(sgramfile) or overwrite:
+                print(f"Output file: {sgramfile}")
+                spobj = IceWeb.icewebSpectrogram(stream=st)
+                spobj.plot(outfile=sgramfile, dbscale=dbscale, title=sgramfile, equal_scale=equal_scale, clim=clim, fmin=fmin, fmax=fmax)
+                del spobj
+                update_products_row(conn, subnet, startStr, endStr, field='sgramDone', value=True)
+        plt.close('all')
+
+        del startt, sgramdir, sgrambase, sgramfile
+
+    ###########################################
+    elif seismogramType=='DISP':
+        if not drsDone:
+            # compute/write reduced displacement
+            if verbose:
+                print(f"Computing DRS")
+            thisDRSobj = IceWeb.ReducedDisplacementObj(st=st, sampling_interval=rsamSamplingIntervalSeconds, verbose=verbose, units='m' )
+            if verbose:
+                print(f"Writing DRS to SDS")
+            thisDRSobj.write(RSAM_SDS_TOP) # write Drs to an SDS-like structure
+            del thisDRSobj
+            update_products_row(conn, subnet, startStr, endStr, field='drsDone', value=True)
+
+    unlock_row(conn, subnet, startStr, endStr)
+    gc.collect()
+
+def read_config(configdir='.', leader='iceweb'):
+    config = dict()
+    for which in ['general', 'subnets', 'traceids']:
+        config[which] = pd.read_csv(os.path.join(configdir, f"{leader}_{which}.config.csv"))
+    vars = dict()
+    for index, row in config['general'].iterrows():
+        vars[row['Variable']] = row['Value']
+    for key in vars:
+        if '$' in vars[key]:
+            parts = vars[key].split('/')
+            if len(parts)==1:
+                vars[key] = vars[parts[0][1:]]
+            else:
+                vars[key] = vars[parts[0][1:]] + '/' + '/'.join(parts[1:])
+    config['general']=vars
+    return config
 
 if __name__ == '__main__':
     dbpath = '/RAIDZ/IceWeb/iceweb_sqllite3.db'
