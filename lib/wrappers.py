@@ -713,7 +713,7 @@ def SDS_to_Stream_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=None, \
         zerophase=False, corners=2, sampling_interval=60.0, sourcelat=None, \
         sourcelon=None, inv=None, trace_ids=None, overwrite=True, verbose=False, \
         timeWindowMinutes=10,  timeWindowOverlapMinutes=5, subnet='unknown', \
-        dbpath='iceweb_sqlite3.db'):
+        dbpath='iceweb_sqlite3.db', SGRAM_TOP='.'):
     '''
     Load Stream from SDS archive, instrument-correct it, add distance metrics.
     
@@ -789,7 +789,7 @@ def SDS_to_Stream_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=None, \
                     print(f"Trimming to 24-hour day from {startOfTimeWindow} to {endOfTimeWindow}")
                 cst.trim(starttime=startOfTimeWindow, endtime=endOfTimeWindow)
                 if lock_row(conn, subnet, startStr, endStr, create=True):
-                    StreamToIcewebProducts(cst, seismogramType, conn, subnet, startStr, endStr) 
+                    StreamToIcewebProducts(cst, seismogramType, conn, subnet, startStr, endStr, SGRAM_TOP=SGRAM_TOP) 
                     unlock_row(conn, subnet, startStr, endStr)
                 del cst
 
@@ -874,7 +874,7 @@ def StreamToIcewebProducts(st, seismogramType, conn, subnet, startStr, endStr, v
 
 def read_config(configdir='.', leader='iceweb'):
     config = dict()
-    for which in ['general', 'subnets', 'traceids']:
+    for which in ['general', 'subnets', 'traceids', 'places']:
         config[which] = pd.read_csv(os.path.join(configdir, f"{leader}_{which}.config.csv"))
     vars = dict()
     for index, row in config['general'].iterrows():
