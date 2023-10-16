@@ -880,17 +880,27 @@ class datasourceObj():
         self.connector = None
         if self.dstype.tolower() == 'sds': # learn how to process kwargs
             self.connector = obspy.clients.filesystem.sds.Client(SDS_TOP=kwargs['SDS_TOP'], sds_type=kwargs['sds_type'])
+        elif self.dstype.tolower() == 'fdsn': # learn how to process kwargs
+            self.connector = obspy.clients.fdsn.Client(base_url=self.url)
 
-    def get_waveforms(self, startt, endt, trace_ids=None):
+    def get_stream(self, startt, endt, trace_ids=None):
+        st = Stream()
         if self.dstype.tolower() == 'sds':
-            if not self.connector:
-                self.connector = obspy.clients.filesystem.sds.Client(SDS_TOP, sds_type=sds_type, format=format)
-            st = read(self.connector, startt, endt, trace_ids=None, speed=2, verbose=verbose)
+            if self.connector: # it should be an SDSobj
+                st = self.connector.read(startt, endt, trace_ids=None, speed=2)
+        elif self.dstype.tolower() == 'fdsn':
+            if self.connector and trace_ids:
+                st = FDSNtools.get_stream(self.connector, trace_ids, startt, endt)
+        return st
 
     def close(self):
         if self.connector:
-            # close connector
+            if self.dstype.tolower() == 'sds': # close SDS connector is just to delete references to that SDSobj
+                pass
+            elif self.dstype.lower() == 'fdsn':
+                self.connector.close()
         self.connector = False
+        gc.collect()
 
 
 def read_config(configdir='.', leader='iceweb'):
