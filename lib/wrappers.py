@@ -872,6 +872,27 @@ def StreamToIcewebProducts(st, seismogramType, conn, subnet, startStr, endStr, v
     unlock_row(conn, subnet, startStr, endStr)
     gc.collect()
 
+
+class datasourceObj():
+    def __init__(self, dstype, url, **kwargs): # create a datasource connection
+        self.dstype = dstype
+        self.url = url
+        self.connector = None
+        if self.dstype.tolower() == 'sds': # learn how to process kwargs
+            self.connector = obspy.clients.filesystem.sds.Client(SDS_TOP=kwargs['SDS_TOP'], sds_type=kwargs['sds_type'])
+
+    def get_waveforms(self, startt, endt, trace_ids=None):
+        if self.dstype.tolower() == 'sds':
+            if not self.connector:
+                self.connector = obspy.clients.filesystem.sds.Client(SDS_TOP, sds_type=sds_type, format=format)
+            st = read(self.connector, startt, endt, trace_ids=None, speed=2, verbose=verbose)
+
+    def close(self):
+        if self.connector:
+            # close connector
+        self.connector = False
+
+
 def read_config(configdir='.', leader='iceweb'):
     config = dict()
     for which in ['general', 'subnets', 'traceids', 'places']:
