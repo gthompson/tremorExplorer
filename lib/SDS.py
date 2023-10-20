@@ -16,6 +16,7 @@ class SDSobj():
             os.makedirs(SDS_TOP, exist_ok=True)    
         self.client = obspy.clients.filesystem.sds.Client(SDS_TOP, sds_type=sds_type, format=format)
         self.stream = streamobj
+        self.topdir = SDS_TOP
 
     # Read SDS archive
     def read(self, startt, endt, skip_low_rate_channels=True, trace_ids=None, speed=1, verbose=True ):
