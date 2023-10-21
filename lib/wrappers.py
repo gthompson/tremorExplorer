@@ -878,6 +878,7 @@ class datasourceObj():
         self.dstype = dstype
         self.url = url
         self.connector = None
+
         if self.dstype.lower() == 'sds': # learn how to process kwargs
             self.connector = SDS.SDSobj(SDS_TOP, sds_type='D', format='MSEED')
         elif self.dstype.lower() == 'fdsn': # learn how to process kwargs
@@ -933,8 +934,13 @@ class datasourceObj():
 
     def close(self):
         if self.connector:
-            # close connector
-            self.connector = False
+            if self.dstype.tolower() == 'sds': # close SDS connector is just to delete references to that SDSobj
+                pass
+            elif self.dstype.lower() == 'fdsn':
+                self.connector.close()
+        self.connector = False
+        gc.collect()
+
 
 
 def read_config(configdir='config', leader='iceweb'):

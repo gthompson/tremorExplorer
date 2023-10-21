@@ -125,10 +125,7 @@ class SDSobj():
 
 
     def write(self, overwrite=False):
-        #print(self)
-        #print(self.stream)
         for tr in self.stream:
-            #print(tr)
             sdsfile = self.client._get_filename(tr.stats.network, tr.stats.station, tr.stats.location, tr.stats.channel, tr.stats.starttime, 'D')
             sdsdir = os.path.dirname(sdsfile)
             print(sdsdir)       
@@ -143,30 +140,29 @@ class SDSobj():
             else:
                 if os.path.isfile(sdsfile): # try to load and merge data from file if it already exists
                     st_before = obspy.read(sdsfile)
-                    print(sdsfile,' already contains data')
-                    print(st_before)
-                    print('trying to merge this new trace:')
-                    print(tr)
-                    tr_now = tr.copy()
-                    st_before.append(tr_now)
-                    try:
-                        st_before.merge(method=1,fill_value=0)
-                        print('merge succeeded')
-                    except:
-                        print('Could not merge. No new data written.')
-                        break
-                    print('After merging:')
-                    print(st_before)
-                    if len(st_before)==1:
-                        #print("Just one trace")
-                        if st_before[0].stats.sampling_rate >= 1:
-                            if tr.stats.sampling_rate >= 1:
-                                if st_before[0].stats.npts < tr.stats.npts:
-                                    tr.write(sdsfile, 'mseed')
-                    else:
-                        print('Cannot write Stream with more than 1 trace to a single SDS file')
+                    if not st_before == tr:
+                        print(f"{sdsfile} already contains data: {st_before}")
+                        print(f"trying to merge new trace {tr}")
+                        tr_now = tr.copy()
+                        st_before.append(tr_now)
+                        try:
+                            st_before.merge(method=1,fill_value=0)
+                            print(f"After merge {st_before}")
+                        except:
+                            print('Could not merge. No new data written.')
+                            break
+                        if len(st_before)==1:
+                            if st_before[0].stats.sampling_rate >= 1:
+                                if tr.stats.sampling_rate >= 1:
+                                    if st_before[0].stats.npts < tr.stats.npts:
+                                        tr.write(sdsfile, 'mseed')
+                        else:
+                            print('Cannot write Stream with more than 1 trace to a single SDS file')
                 else:    
                     print(sdsfile,' does not already exist. Writing')
                     tr.write(sdsfile, 'mseed')
+    
+    def __str__(self):
+        print(f"client={self.client}, stream={self.stream}")
 
 
