@@ -1,0 +1,17 @@
+# Install environment with
+# conda env create -f iceweb.yaml
+name: iceweb
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - cartopy
+  - folium
+  - ipython
+  - jupyter
+  - obspy=1.4
+  - pandas
+  - pytest
+  - seaborn
+  - plotly
+  - streamlit
