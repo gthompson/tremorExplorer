@@ -4,6 +4,9 @@ __pycache__/
 *.png
 .DS_Store
 run/
+CSAM/
+DRS/
+RSAM/
 .vscode
 html/AVO/index.html
 cov12_sessions_lessonslearned.docx

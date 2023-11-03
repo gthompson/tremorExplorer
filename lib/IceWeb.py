@@ -1,5 +1,6 @@
-from obspy.core import read, Stream
+from obspy.core import read, Stream, UTCDateTime
 import numpy as np
+import pandas as pd
 
 ## imports for mimicing obspy spectrograms
 from obspy.imaging.spectrogram import _nearest_pow_2
@@ -400,8 +401,123 @@ def amp2dB(X):
 def dB2amp(X):
     return np.power(10.0, float(X)/20.0)
 
+class RSAMmetrics:
+    def __init__(self, st=None, sampling_interval=60.0, absolute=True, filter=True):
+        ''' Compute RSAM metrics. You must pass a Stream object that has already been detrended, high pass filtered, instrument corrected '''
+        self.dataframes = {} 
+        self.trace_ids = []
+        
+        if isinstance(st, Stream):
+            bands = {'VLP': [0.02, 0.2], 'LP':[0.5, 4.0], 'VT':[4.0, 18.0]}
+            for tr in st:
+                print(tr.id, 'absolute=',absolute)
+                df = pd.DataFrame()
+                
+                t = tr.times('timestamp') # Unix epoch time
+                sampling_rate = tr.stats.sampling_rate
+                t = reshape_trace_data(t, sampling_rate, sampling_interval, absolute=False)
+                df['time'] = pd.Series(np.nanmin(t,axis=1))
 
+                if filter:
+                    tr_normal = tr.copy().filter('highpass', freq=0.5)
+                    y = reshape_trace_data(tr_normal.data, sampling_rate, sampling_interval, absolute=absolute)
+                else:
+                    y = reshape_trace_data(tr.data, sampling_rate, sampling_interval, absolute=absolute)
+                #if absolute:
+                #    y = abs(y)
+                df['min'] = pd.Series(np.nanmin(y,axis=1))    
+                df['mean'] = pd.Series(np.nanmean(y,axis=1)) 
+                df['max'] = pd.Series(np.nanmax(y,axis=1))
+                df['median'] = pd.Series(np.nanmedian(y,axis=1))
+                if filter and absolute:
+                    for key in bands:
+                        tr2 = tr.copy()
+                        [flow, fhigh] = bands[key]
+                        tr2.filter('bandpass', freqmin=flow, freqmax=fhigh, corners=2)
+                        y = reshape_trace_data(tr2.data, sampling_rate, sampling_interval, absolute=absolute)
+                        df[key] = pd.Series(np.nanmean(y,axis=1))
+                self.dataframes[tr.id] = df
+                self.trace_ids.append(tr.id)
 
+    def write(self, RSAM_TOP='.'):
+        for key in self.dataframes:
+            df = self.dataframes[key]
+            if df.empty:
+                continue
+            starttime = df.iloc[0]['time']
+            yyyy = UTCDateTime(starttime).year
+            rsam_csv = os.path.join(RSAM_TOP,'RSAM_metrics_%s_%4d.csv' % (key, yyyy))
+            if not os.path.isdir(RSAM_TOP):
+                os.makedirs(RSAM_TOP)
+            print(f"Saving to {rsam_csv}")
+            if os.path.isfile(rsam_csv):
+                original_df = pd.read_csv(rsam_csv)
+                combined_df = pd.concat([original_df, df], ignore_index=True)
+                combined_df = combined_df.drop_duplicates(subset=['time'], keep='last')
+                combined_df.to_csv(rsam_csv, index=False)
+            else:
+                df.to_csv(rsam_csv, index=False)
+
+    def plot(self, metrics=None, log=False):
+        i = 0
+        for key in self.dataframes:
+            df = self.dataframes[key]
+            this_df = df.copy()
+            if metrics:
+                this_df = this_df[metrics]
+            this_df['time'] = pd.to_datetime(df['time'], unit='s')
+            #this_df.set_index('time')
+            #print(this_df.index)
+            ph = this_df.plot(x='time', y=['mean', 'median'], title=self.trace_ids[i], logy=log) #, x_compat=True)
+            if 'VLP' in this_df.columns:
+                ph2 = this_df.plot(x='time', y=['VLP', 'LP', 'VT'], title=f"{self.trace_ids[i]}, f-bands", logy=log) #, x_compat=True)
+            i += 1
+        
+
+def read_RSAMmetrics(startt, endt, trace_ids=None, RSAM_TOP='.'):
+    self = RSAMmetrics()
+    if not endt.year == startt.year:
+        print('Cannot read across year boundaries. Adjusting to end of start year')
+        endt = obspy.UTCDateTime(startt.year, 12, 31, 23, 59, 59)
+    yyyy = startt.year
+    if not trace_ids:
+        # find all matching files
+        import glob
+        rsamfiles = glob.glob(os.path.join(RSAM_TOP,'RSAM_metrics_*_[0-9][0-9][0-9][0-9].csv'))
+        trace_ids = []
+        for rsam_csv in rsamfiles:
+            parts = rsam_csv.split('_')
+            trace_ids.append(parts[-2])
+    else:
+        rsamfiles = []
+        for id in trace_ids:
+            rsamfiles.append(os.path.join(RSAM_TOP,'RSAM_metrics_%s_%4d.csv' % (id, yyyy)))
+    for i, rsam_csv in enumerate(rsamfiles):
+        id = trace_ids[i]
+        df = pd.read_csv(rsam_csv, index_col=False)
+        df['pddatetime'] = pd.to_datetime(df['time'], unit='s')
+        # construct Boolean mask
+        mask = df['pddatetime'].between(startt.isoformat(), endt.isoformat())
+        # apply Boolean mask
+        subset_df = df[mask]
+        self.dataframes[id] = subset_df.drop(columns=['pddatetime'])
+        self.trace_ids.append(id)
+    return self
+
+def reshape_trace_data(x, sampling_rate, sampling_interval, absolute=True):
+    # reshape the data vector into an array, so we can take advantage of np.mean()
+    if absolute:
+        x = np.absolute(x)
+        #x = abs(x)
+    s = np.size(x) # find the size of the data vector
+    nc = int(sampling_rate * sampling_interval) # number of columns
+    nr = int(s / nc) # number of rows
+    x = x[0:nr*nc] # cut off any trailing samples
+    y = x.reshape((nr, nc))
+    if absolute:
+        y = np.absolute(y) # this should be obsolete
+    return y
+    
 class RSAMobj:
     
     def __init__(self, st=None, inv=None, sampling_interval=60.0, verbose=False, metric='mean', freqmin=0.5, freqmax=15.0, zerophase=False, corners=2, startt=None, endt=None, absolute=True, last_ylist=None, units=None ):
@@ -416,15 +532,20 @@ class RSAMobj:
                 if last_ylist:
                     y = last_ylist[index]
                 else:
-                    if tr.stats.channel[2] in 'ENZ' or tr.stats.channel[1:]=='DF': # filter seismic and infrasound channels only
+                    if tr: #tr.stats.channel[2] in 'ENZ' or tr.stats.channel[1:]=='DF': # filter seismic and infrasound channels only
+                        # SCAFFOLD: changed line above to add well log data to this analysis
                         print('Processing %s' % tr.id)
-                        if inv and units=='Counts':
+                        if inv and tr.stats.units=='Counts': # SCAFFOLD: changed units passed by argument to tr.stats.units. from inv, need to change tr.stats.units elsewhere
                             pre_filt = [freqmin/1.2, freqmin, freqmax, freqmax*1.2]
                             tr.remove_response(output='VEL', inventory=inv, plot=verbose, pre_filt=pre_filt, water_level=60)    
                             self.corrected = True
-                        elif units=='m/s':
+                            tr.stats['units'] = 'm/s'
+                        elif tr.stats.units=='m/s' or tr.stats.units=='Pa':
                             self.corrected = True
-                        elif units=='Counts':
+                            if absolute: # if not absolute, i.e. keepRaw, then we do not apply any filtering
+                                tr.detrend(type='linear')
+                                tr.filter('bandpass', freqmin=freqmin, freqmax=freqmax, zerophase=False, corners=corners)                         
+                        elif tr.stats.units=='Counts':
                             tr.detrend(type='linear')
                             tr.filter('bandpass', freqmin=freqmin, freqmax=freqmax, zerophase=False, corners=corners)                            
                             print('No inventory for RSAM calculation. Only detrended & bandpassed.')  
@@ -475,16 +596,16 @@ class RSAMobj:
         else:
             RSAMSDS_TOP = os.path.join(SDS_TOP,'RSAM',self.metric)           
         RSAMSDSobj = SDS.SDSobj(RSAMSDS_TOP, streamobj=self.stream)
-        RSAMSDSobj.write(overwrite=True)           
-        
+        RSAMSDSobj.write(overwrite=True)
+
     
-    def read(self, startt, endt, SDS_TOP, metric='mean', speed=2, corrected=False):
+    def read(self, startt, endt, SDS_TOP, metric='mean', speed=2, trace_ids=None, corrected=False):
         if corrected:
             RSAMSDS_TOP = os.path.join(SDS_TOP,'CSAM',self.metric)
         else:
             RSAMSDS_TOP = os.path.join(SDS_TOP,'RSAM',self.metric)           
         thisSDSobj = SDS.SDSobj(RSAMSDS_TOP)
-        thisSDSobj.read(startt, endt, speed=speed)
+        thisSDSobj.read(startt, endt, speed=speed, trace_ids=trace_ids)
         print(thisSDSobj.stream)
         self.stream = thisSDSobj.stream
         self.metric=metric

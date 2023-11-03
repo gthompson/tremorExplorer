@@ -798,8 +798,7 @@ def SDS_to_Stream_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=None, \
         startOfTimeWindow = endOfTimeWindow
     conn.close()
     
-def StreamToIcewebProducts(st, seismogramType, conn, subnet, startStr, endStr, verbose=False, rsamSamplingIntervalSeconds=60, RSAM_SDS_TOP='.', SGRAM_TOP='.', dbscale=True, \
-                              equal_scale=True, clim=[1e-8,1e-5], fmin=0.5, fmax=None, overwrite=False):
+def StreamToIcewebProducts(st, seismogramType, conn, subnet, startStr, endStr, verbose=False, rsamSamplingIntervalSeconds=60, RSAM_SDS_TOP='.', SGRAM_TOP='.', dbscale=True, equal_scale=True, clim=[1e-8,1e-5], fmin=0.5, fmax=18.0, overwrite=False):
     '''
     Process Stream into IceWeb products.
 
@@ -826,35 +825,58 @@ def StreamToIcewebProducts(st, seismogramType, conn, subnet, startStr, endStr, v
         raise Exception("No corresponding row found in products table. This should be impossible!")
 
     ####################################
-    if seismogramType=='VEL':
+    if seismogramType=='VEL': # SCAFFOLD: make work for pressure too?
 
         # compute & save instrument-corrected RSAM
         if not rsamDone:
             if verbose:
                 print(f"Computing corrected RSAM")
-            thisRSAMobj = IceWeb.RSAMobj(st=st, sampling_interval=rsamSamplingIntervalSeconds, verbose=verbose,  units='m/s', absolute=True)
+            st_abs = obspy.Stream()
+            st_noabs = obspy.Stream()
+            for tr in st:
+                if tr.stats.config['keepRaw']:
+                    st_noabs.append(tr)
+                else:
+                    st_abs.append(tr)
+            if len(st_abs)>0:
+                #thisRSAMobj = IceWeb.RSAMobj(st=st_abs, sampling_interval=rsamSamplingIntervalSeconds, verbose=verbose,  units='m/s', absolute=True)
+                #thisRSAMobj.write(RSAM_SDS_TOP) # write RSAM to an SDS-like structure
+                # need to prepare this stream
+                st_abs.detrend('linear')
+                metricsObj = IceWeb.RSAMmetrics(st=st_abs, sampling_interval=rsamSamplingIntervalSeconds, absolute=True, filter=True)
+                metricsObj.write(RSAM_TOP = RSAM_SDS_TOP) # write RSAM to an SDS-like structure                
+            if len(st_noabs)>0:
+                # no filtering
+                #thisRSAMobj = IceWeb.RSAMobj(st=st_noabs, sampling_interval=rsamSamplingIntervalSeconds, verbose=verbose,  units='m/s', absolute=False)
+                #thisRSAMobj.write(RSAM_SDS_TOP) # write RSAM to an SDS-like structure    
+                metricsObj = IceWeb.RSAMmetrics(st=st_noabs, sampling_interval=rsamSamplingIntervalSeconds, absolute=False, filter=False)
+                metricsObj.write(RSAM_TOP = RSAM_SDS_TOP) # write RSAM to an SDS-like structure                   
             if verbose:
                 print(f"Saving corrected RSAM to SDS")
-            thisRSAMobj.write(RSAM_SDS_TOP) # write RSAM to an SDS-like structure
-            del thisRSAMobj
+            #del thisRSAMobj
+            del metricsObj
             update_products_row(conn, subnet, startStr, endStr, field='rsamDone', value=True)
 
         # Spectrogram
         if not sgramDone:
-            sgramdir = os.path.join(SGRAM_TOP, st[0].stats.network, startt.strftime('%Y'), startt.strftime('%j'))
-            sgrambase = '%s_%s.png' % (subnet, startt.strftime('%Y%m%d-%H%M'))
-            sgramfile = os.path.join(sgramdir, sgrambase)
-            if not os.path.isdir(sgramdir):
-                os.makedirs(sgramdir)
-            if not os.path.isfile(sgramfile) or overwrite:
-                print(f"Output file: {sgramfile}")
-                spobj = IceWeb.icewebSpectrogram(stream=st)
-                spobj.plot(outfile=sgramfile, dbscale=dbscale, title=sgramfile, equal_scale=equal_scale, clim=clim, fmin=fmin, fmax=fmax)
-                del spobj
-                update_products_row(conn, subnet, startStr, endStr, field='sgramDone', value=True)
-        plt.close('all')
-
-        del startt, sgramdir, sgrambase, sgramfile
+            st_sgram = obspy.Stream()
+            for tr in st:
+                if tr.stats.config['sgram']:
+                    st_sgram.append(tr)
+            if len(st_sgram)>0:
+                sgramdir = os.path.join(SGRAM_TOP, st_sgram[0].stats.network, startt.strftime('%Y'), startt.strftime('%j'))
+                sgrambase = '%s_%s.png' % (subnet, startt.strftime('%Y%m%d-%H%M'))
+                sgramfile = os.path.join(sgramdir, sgrambase)
+                if not os.path.isdir(sgramdir):
+                    os.makedirs(sgramdir)
+                if not os.path.isfile(sgramfile) or overwrite:
+                    print(f"Output file: {sgramfile}")
+                    spobj = IceWeb.icewebSpectrogram(stream=st_sgram)
+                    spobj.plot(outfile=sgramfile, dbscale=dbscale, title=sgramfile, equal_scale=equal_scale, clim=clim, fmin=fmin, fmax=fmax)
+                    del spobj
+                    update_products_row(conn, subnet, startStr, endStr, field='sgramDone', value=True)
+                plt.close('all')
+                del sgramdir, sgrambase, sgramfile
 
     ###########################################
     elif seismogramType=='DISP':
@@ -982,7 +1004,7 @@ def run_iceweb_job(subnet, configdir='config', configname='iceweb'):
     
     
     for index, row in job_rows_df.iterrows():
-        if row['done'] and not row['hold']:
+        if row['done'] or row['hold']:
             continue               
 
         #######################
@@ -998,15 +1020,15 @@ def run_iceweb_job(subnet, configdir='config', configname='iceweb'):
         else:                 
             startt = obspy.UTCDateTime(now)
             endt = startt + 86400 # run for 24 hours in real-time mode
-        print(startt, endt)
+        print('Timewindow: ', startt, endt)
 
         # traceids
         matching_traceids_df = traceidsDf[traceidsDf['subnet']==subnet]
         trace_ids = matching_traceids_df['trace_id'].to_list()
-        print(trace_ids)
+        #print(trace_ids)
 
         # coordinates
-        print(placesDf)
+        #print(placesDf)
         matching_places_df = placesDf[placesDf['Place']==subnet]
         centerlat = float(matching_places_df['Lat'].iloc[0])
         centerlon = float(matching_places_df['Lon'].iloc[0])
@@ -1022,13 +1044,15 @@ def run_iceweb_job(subnet, configdir='config', configname='iceweb'):
 
         # inventory - where to get this from? if downloading from FDSN, can just get when reading station waveform data SCAFFOLD
         inv = dsobj.get_inventory(startt, endt, centerlat, centerlon, searchRadiusDeg)
-
+        if not inv:
+            # try to load calibration info instead?
+            inv = matching_traceids_df
         
         ########################
         # RUN JOB
         #######################
 
-        return # SCAFFOLD. Want to check above part first. Only run when SDS archive built.
+        #return # SCAFFOLD. Want to check above part first. Only run when SDS archive built.
 
         # replace following with a generic datasource to Stream wrapper
         process_timewindows(
@@ -1113,35 +1137,50 @@ def process_timewindows(startt, endt, dsobj, freqmin=0.5, freqmax=None, \
         print(f"Time now: {obspy.UTCDateTime.now().isoformat()}")
         print(f"Processing {startOfTimeWindow}")
 
-
-        if inv: # with inventory CSAM, Drs, and spectrograms
+        if isinstance(inv, obspy.Inventory) or isinstance(inv, pd.DataFrame): # with inventory CSAM, Drs, and spectrograms
 
             st = dsobj.get_waveforms(startOfTimeWindow-taperSecs, endOfTimeWindow+taperSecs, trace_ids=trace_ids)
+            if isinstance(inv, obspy.Inventory):
+                InventoryTools.attach_station_coordinates_from_inventory(inv, st)
+                InventoryTools.attach_distance_to_stream(st, sourcelat, sourcelon)
 
-            InventoryTools.attach_station_coordinates_from_inventory(inv, st)
-            InventoryTools.attach_distance_to_stream(st, sourcelat, sourcelon)
-            r = [tr.stats.distance for tr in st]
-            if verbose:
-                print(f"Stream: {st}")
-                print(f"Distances: {r}")
-            st = order_traces_by_distance(st, r, assert_channel_order=True)
-            print(st, [tr.stats.distance for tr in st])
-            #VEL = order_traces_by_distance(VEL, r, assert_channel_order=True)
+                r = [tr.stats.distance for tr in st]
+                if verbose:
+                    print(f"Stream: {st}")
+                    print(f"Distances: {r}")
+                st = order_traces_by_distance(st, r, assert_channel_order=True)
+                print(st, [tr.stats.distance for tr in st])
+ 
+                pre_filt = [freqmin/1.2, freqmin, freqmax, freqmax*1.2]
+                for seismogramType in ['VEL', 'DISP']:
+                    if verbose:
+                        print(f"Correcting to {seismogramType} seismogram")
+                    cst = st.copy().select(channel="*H*").remove_response(output=seismogramType, inventory=inv, plot=verbose, pre_filt=pre_filt, water_level=60)
+                    if verbose:
+                        print(f"Trimming to 24-hour day from {startOfTimeWindow} to {endOfTimeWindow}")
+                    cst.trim(starttime=startOfTimeWindow, endtime=endOfTimeWindow)
+                    if lock_row(conn, subnet, startStr, endStr, create=True):
+                        StreamToIcewebProducts(cst, seismogramType, conn, subnet, startStr, endStr, SGRAM_TOP=SGRAM_TOP)
+                        unlock_row(conn, subnet, startStr, endStr)
+                    del cst
 
-            pre_filt = [freqmin/1.2, freqmin, freqmax, freqmax*1.2]
-            for seismogramType in ['VEL', 'DISP']:
-                if verbose:
-                    print(f"Correcting to {seismogramType} seismogram")
-                cst = st.copy().select(channel="*H*").remove_response(output=seismogramType, inventory=inv, plot=verbose, pre_filt=pre_filt, water_level=60)
-                if verbose:
-                    print(f"Trimming to 24-hour day from {startOfTimeWindow} to {endOfTimeWindow}")
-                cst.trim(starttime=startOfTimeWindow, endtime=endOfTimeWindow)
+                del st, r, pre_filt
+            elif isinstance(inv, pd.DataFrame): # make this work for KSC with Well Log data to do RSAM
+                for index, row in inv.iterrows():
+                    for tr in st:
+                        if row['trace_id'] == tr.id:
+                            tr.data = tr.data / row['calib']
+                            if tr.stats.channel[1]=='H':
+                                tr.stats['units'] = 'm/s'
+                            elif tr.stats.channel[1]=='D':
+                                tr.stats['units'] = 'Pa'
+                            tr.stats['config'] = obspy.core.util.attribdict.AttribDict({'maxPower':row['maxPower'], 'keepRaw':row['keepRaw'], 'sgram':row['sgram'],  'calib':row['calib']})
+
                 if lock_row(conn, subnet, startStr, endStr, create=True):
-                    StreamToIcewebProducts(cst, seismogramType, conn, subnet, startStr, endStr, SGRAM_TOP=SGRAM_TOP)
+                    StreamToIcewebProducts(st, 'VEL', conn, subnet, startStr, endStr, SGRAM_TOP=SGRAM_TOP)
                     unlock_row(conn, subnet, startStr, endStr)
-                del cst
-
-            del st, r, pre_filt
+                del st                    
+                
         gc.collect()
         startOfTimeWindow = endOfTimeWindow
     conn.close()
