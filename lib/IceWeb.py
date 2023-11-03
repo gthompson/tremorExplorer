@@ -494,7 +494,12 @@ def read_RSAMmetrics(startt, endt, trace_ids=None, RSAM_TOP='.'):
             rsamfiles.append(os.path.join(RSAM_TOP,'RSAM_metrics_%s_%4d.csv' % (id, yyyy)))
     for i, rsam_csv in enumerate(rsamfiles):
         id = trace_ids[i]
-        df = pd.read_csv(rsam_csv, index_col=False)
+        try:
+            print(rsam_csv)
+            df = pd.read_csv(rsam_csv, index_col=False)
+        except:
+            if df.empty:
+                continue
         df['pddatetime'] = pd.to_datetime(df['time'], unit='s')
         # construct Boolean mask
         mask = df['pddatetime'].between(startt.isoformat(), endt.isoformat())

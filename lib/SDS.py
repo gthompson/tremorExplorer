@@ -125,6 +125,7 @@ class SDSobj():
 
 
     def write(self, overwrite=False):
+        successful = True
         for tr in self.stream:
             sdsfile = self.client._get_filename(tr.stats.network, tr.stats.station, tr.stats.location, tr.stats.channel, tr.stats.starttime, 'D')
             sdsdir = os.path.dirname(sdsfile)
@@ -133,34 +134,51 @@ class SDSobj():
                 os.makedirs(sdsdir, exist_ok=True)
             if overwrite:
                 if os.path.isfile(sdsfile): 
-                    print(sdsfile,' already contains data. overwriting')
+                    print('sds.write: ',sdsfile,' already contains data. overwriting')
                 else:
-                    print(sdsfile,' does not already exist. Writing')
-                tr.write(sdsfile, 'mseed')
+                    print('sds.write: ',sdsfile,' does not already exist. Writing')
+                try:
+                    tr.write(sdsfile, 'mseed')
+                except:
+                    successful = False
             else:
                 if os.path.isfile(sdsfile): # try to load and merge data from file if it already exists
                     st_before = obspy.read(sdsfile)
+                    st_new = st_before.copy()
                     if not st_before == tr:
-                        print(f"{sdsfile} already contains data: {st_before}")
-                        print(f"trying to merge new trace {tr}")
+                        print(f"sds.write: {sdsfile} already contains data: {st_before}")
+                        print(f"sds.write: trying to merge new trace {tr}")
                         tr_now = tr.copy()
-                        st_before.append(tr_now)
+                        st_new.append(tr_now)
                         try:
-                            st_before.merge(method=1,fill_value=0)
-                            print(f"After merge {st_before}")
+                            st_new.merge(method=1,fill_value=0)
+                            print(f"sds.write: After merge {st_new}")
                         except:
-                            print('Could not merge. No new data written.')
+                            print('sds.write: Could not merge. No new data written.')
+                            successful = False
                             break
-                        if len(st_before)==1:
-                            if st_before[0].stats.sampling_rate >= 1:
-                                if tr.stats.sampling_rate >= 1:
-                                    if st_before[0].stats.npts < tr.stats.npts:
-                                        tr.write(sdsfile, 'mseed')
+                        if len(st_new)==1: # merge succeeded
+                            try:
+                                st_new[0].write(sdsfile, 'mseed')
+                            except:
+                                successful = False                            
+                            #if st_before[0].stats.sampling_rate >= 1: OLD CODE I DO NOT UNDERSTAND
+                                #if tr.stats.sampling_rate >= 1:
+                                    #if st_before[0].stats.npts < tr.stats.npts:
+                                        #try:
+                                            #tr.write(sdsfile, 'mseed')
+                                        #except:
+                                            #successful = False
                         else:
-                            print('Cannot write Stream with more than 1 trace to a single SDS file')
+                            successful = False
+                            print('sds.write: Cannot write Stream with more than 1 trace to a single SDS file')
                 else:    
-                    print(sdsfile,' does not already exist. Writing')
-                    tr.write(sdsfile, 'mseed')
+                    print('sds.write: ',sdsfile,' does not already exist. Writing')
+                    try:
+                        tr.write(sdsfile, 'mseed')
+                    except:
+                        successful = False
+        return successful
     
     def __str__(self):
         print(f"client={self.client}, stream={self.stream}")
