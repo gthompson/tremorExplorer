@@ -123,7 +123,62 @@ class SDSobj():
         print(availabilityDF);
         return availabilityDF, trace_ids
 
+    def plot_availability(self, availabilityDF, outfile=None, FS=12, labels=None):
+        import matplotlib.pyplot as plt
 
+        def _get_yticks(s):
+            yticklabels = []
+            yticks=[]
+            for i, el in enumerate(s.to_numpy()):
+                yticklabels.append(el)
+                yticks.append(i)
+            ystep = 1
+            if len(yticks)>15:
+                ystep=2  
+            if len(yticks)>25:
+                ystep=3
+            if len(yticks)>40:
+                ystep=int(len(yticks)*7/100)        
+            yticks = yticks[0::ystep]
+            yticklabels = yticklabels[0::ystep]
+            return (yticks, yticklabels)
+
+        Adf = availabilityDF.iloc[:,1:]/100
+        Adata = np.array(Adf, dtype=float) # convert dataframe to numpy array
+        if isinstance(labels, list):
+            xticklabels = labels
+        else:
+            xticklabels = Adf.columns
+        #print(xticklabels)
+        (yticks, yticklabels) = _get_yticks(availabilityDF['date'])
+        #print(yticks)
+
+        plt.rc('axes', labelsize=FS) 
+        fig = plt.figure(figsize=(FS, FS))
+        ax = fig.add_subplot(111)
+        #ax.imshow(data, aspect='auto', cmap=plt.cm.gray, interpolation='nearest')
+        ax.imshow(np.transpose(1.0-Adata), aspect='auto', cmap=plt.cm.gray, interpolation='nearest')
+        #plt.xticks(np.arange(len(xticklabels)), xticklabels)
+        plt.yticks(np.arange(len(xticklabels)), xticklabels, fontsize=FS)
+        #ax.set_xticklabels(xticklabels, rotation = 90)
+        ax.set_yticklabels(xticklabels, rotation = 0, fontsize=FS )
+        #plt.yticks(yticks, yticklabels)
+        plt.xticks(yticks, yticklabels, rotation = 90, fontsize=FS)
+        bottom, top = ax.set_ylim()
+        ax.set_ylim(bottom+1, top-1)
+
+        ax.tick_params(axis='both', which='major', labelsize=FS)
+        #fig.tight_layout()
+        plt.xlabel('Date')
+        plt.ylabel('NSLC')
+        plt.rc('font', size=FS) 
+        plt.rc('xtick', labelsize=FS) 
+        plt.rc('ytick', labelsize=FS) 
+        plt.grid('on')
+        #plt.show()
+        if outfile:
+            fig.savefig(outfile, dpi=300)
+    
     def write(self, overwrite=False):
         successful = True
         for tr in self.stream:

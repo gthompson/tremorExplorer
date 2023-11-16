@@ -168,16 +168,3 @@ def merge_inventories(inv1, inv2):
         else: # this network code from inv2 does not exist in inv1
             inv1.networks.append(net2)
             netpos = -1
-            
-            
-'''        
-    for sta in inv2.networks[0].stations:
-        if inv1.networks[0].stations:
-            station_codes = [sta.code for sta in inv1.networks[0].stations]
-            if sta.code in station_codes: 
-                _merge_stations(inv1.networks[0].stations, sta, station_codes)
-            else:
-                _add_station(inv1.networks[0].stations, sta)
-        else:
-            _add_station(inv1.networks[0].stations, sta)  
-'''
