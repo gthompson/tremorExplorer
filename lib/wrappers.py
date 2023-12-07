@@ -8,6 +8,7 @@ import Spectrograms
 import gc
 import sqlite3
 import pandas as pd
+from IPython.display import clear_output
 
 def order_traces_by_distance(st, r=[], assert_channel_order=False): 
     st2 = obspy.Stream()
@@ -284,7 +285,7 @@ def SDS_to_Stream_wrapper(startt, endt, SDS_TOP, freqmin=0.5, freqmax=None, \
         startOfTimeWindow = endOfTimeWindow
     conn.close()
     
-def StreamToIcewebProducts(st, seismogramType, conn, subnet, startStr, endStr, verbose=False, rsamSamplingIntervalSeconds=60, RSAM_SDS_TOP='.', SGRAM_TOP='.', dbscale=True, equal_scale=True, clim=[1e-8,1e-5], fmin=0.5, fmax=18.0, overwrite=False):
+def StreamToIcewebProducts(st, seismogramType, conn, subnet, startStr, endStr, verbose=False, rsamSamplingIntervalSeconds=60, RSAM_TOP='.', SGRAM_TOP='.', dbscale=True, equal_scale=True, clim=[1e-8,1e-5], fmin=0.5, fmax=18.0, overwrite=False):
     '''
     Process Stream into IceWeb products.
 
@@ -329,14 +330,14 @@ def StreamToIcewebProducts(st, seismogramType, conn, subnet, startStr, endStr, v
                 #thisRSAMobj.write(RSAM_SDS_TOP) # write RSAM to an SDS-like structure
                 # need to prepare this stream
                 st_abs.detrend('linear')
-                metricsObj = IceWeb.RSAMmetrics(st=st_abs, sampling_interval=rsamSamplingIntervalSeconds, absolute=True, filter=True)
-                metricsObj.write(RSAM_TOP = RSAM_SDS_TOP) # write RSAM to an SDS-like structure                
+                metricsObj = RSAM.RSAMmetrics(st=st_abs, sampling_interval=rsamSamplingIntervalSeconds, absolute=True, filter=True)
+                metricsObj.write(RSAM_TOP = RSAM_TOP) # write RSAM to an SDS-like structure                
             if len(st_noabs)>0:
                 # no filtering
                 #thisRSAMobj = IceWeb.RSAMobj(st=st_noabs, sampling_interval=rsamSamplingIntervalSeconds, verbose=verbose,  units='m/s', absolute=False)
                 #thisRSAMobj.write(RSAM_SDS_TOP) # write RSAM to an SDS-like structure    
-                metricsObj = IceWeb.RSAMmetrics(st=st_noabs, sampling_interval=rsamSamplingIntervalSeconds, absolute=False, filter=False)
-                metricsObj.write(RSAM_TOP = RSAM_SDS_TOP) # write RSAM to an SDS-like structure                   
+                metricsObj = RSAM.RSAMmetrics(st=st_noabs, sampling_interval=rsamSamplingIntervalSeconds, absolute=False, filter=False)
+                metricsObj.write(RSAM_TOP = RSAM_TOP) # write RSAM to an SDS-like structure                   
             if verbose:
                 print(f"Saving corrected RSAM to SDS")
             #del thisRSAMobj
@@ -357,7 +358,7 @@ def StreamToIcewebProducts(st, seismogramType, conn, subnet, startStr, endStr, v
                     os.makedirs(sgramdir)
                 if not os.path.isfile(sgramfile) or overwrite:
                     print(f"Output file: {sgramfile}")
-                    spobj = IceWeb.icewebSpectrogram(stream=st_sgram)
+                    spobj = Spectrograms.icewebSpectrogram(stream=st_sgram)
                     spobj.plot(outfile=sgramfile, dbscale=dbscale, title=sgramfile, equal_scale=equal_scale, clim=clim, fmin=fmin, fmax=fmax)
                     del spobj
                     update_products_row(conn, subnet, startStr, endStr, field='sgramDone', value=True)
@@ -442,7 +443,7 @@ class datasourceObj():
 
     def close(self):
         if self.connector:
-            if self.dstype.tolower() == 'sds': # close SDS connector is just to delete references to that SDSobj
+            if self.dstype.lower() == 'sds': # close SDS connector is just to delete references to that SDSobj
                 pass
             elif self.dstype.lower() == 'fdsn':
                 self.connector.close()
@@ -560,7 +561,8 @@ def run_iceweb_job(subnet, configdir='config', configname='iceweb'):
             timeWindowOverlapMinutes=int(generalDict['timeWindowMinutes'])/10, \
             subnet=subnet, \
             dbpath=generalDict['DBPATH'], \
-            SGRAM_TOP = generalDict['SGRAM_TOP'] \
+            SGRAM_TOP = generalDict['SGRAM_TOP'], \
+            RSAM_TOP = generalDict['RSAM_TOP'] \
          )
 
         # SCAFFOLD
@@ -574,7 +576,7 @@ def process_timewindows(startt, endt, dsobj, freqmin=0.5, freqmax=None, \
         zerophase=False, corners=2, sampling_interval=60.0, sourcelat=None, \
         sourcelon=None, inv=None, trace_ids=None, overwrite=True, verbose=False, \
         timeWindowMinutes=10,  timeWindowOverlapMinutes=5, subnet='unknown', \
-        dbpath='iceweb_sqlite3.db', SGRAM_TOP='.'):
+        dbpath='iceweb_sqlite3.db', SGRAM_TOP='.', RSAM_TOP='.'):
     '''
     Load Stream from datasource, instrument-correct it, add distance metrics.
 
@@ -663,7 +665,7 @@ def process_timewindows(startt, endt, dsobj, freqmin=0.5, freqmax=None, \
                             tr.stats['config'] = obspy.core.util.attribdict.AttribDict({'maxPower':row['maxPower'], 'keepRaw':row['keepRaw'], 'sgram':row['sgram'],  'calib':row['calib']})
 
                 if lock_row(conn, subnet, startStr, endStr, create=True):
-                    StreamToIcewebProducts(st, 'VEL', conn, subnet, startStr, endStr, SGRAM_TOP=SGRAM_TOP)
+                    StreamToIcewebProducts(st, 'VEL', conn, subnet, startStr, endStr, SGRAM_TOP=SGRAM_TOP, RSAM_TOP=RSAM_TOP)
                     unlock_row(conn, subnet, startStr, endStr)
                 del st                    
         clear_output(wait=True)        
