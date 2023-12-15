@@ -1,5 +1,5 @@
 # Install environment with
-# conda env create -f iceweb.yaml
+# conda env create -f iceweb.yml
 name: iceweb
 channels:
   - conda-forge

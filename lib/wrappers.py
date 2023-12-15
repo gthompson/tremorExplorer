@@ -452,32 +452,39 @@ class datasourceObj():
 
 
 
-def read_config(configdir='config', leader='iceweb'):
+def read_config(configdir='config', leader='iceweb', PRODUCTS_TOP=None):
+    
     config = dict()
     for which in ['general', 'jobs', 'traceids', 'places']:
         config[which] = pd.read_csv(os.path.join(configdir, f"{leader}_{which}.config.csv"))
+
+    if PRODUCTS_TOP:
+        config['general']['PRODUCTS_TOP'] = PRODUCTS_TOP
+
     vars = dict()
     for index, row in config['general'].iterrows():
         vars[row['Variable']] = row['Value']
+        
     for key in vars:
-        if '$' in vars[key]:
+        if '$' in vars[key]: # where substitutions take place
             parts = vars[key].split('/')
             if len(parts)==1:
                 vars[key] = vars[parts[0][1:]]
             else:
                 vars[key] = vars[parts[0][1:]] + '/' + '/'.join(parts[1:])
+                
     config['general']=vars
     return config
 
 
 
-def run_iceweb_job(subnet, configdir='config', configname='iceweb'):
+def run_iceweb_job(subnet, configdir='config', configname='iceweb', PRODUCTS_TOP=None):
 
     #######################
     # GENERAL CONFIGURATION
     #######################
 
-    configDict = read_config(configdir=configdir, leader=configname)
+    configDict = read_config(configdir=configdir, leader=configname, PRODUCTS_TOP=PRODUCTS_TOP)
     generalDict = configDict['general']
     jobsDf = configDict['jobs']
     traceidsDf = configDict['traceids']
