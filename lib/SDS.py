@@ -39,18 +39,19 @@ class SDSobj():
                         if verbose:
                             print('st = read("%s")' % sdsfile)
                         that_st = read(sdsfile)
-                        that_st.merge(method=1,fill_value=0)
+                        #that_st.merge(method=1,fill_value=0)
+                        that_st.merge(method=0) # mark overlaps that disagree with missing samples, and do not fill 
                         #print(sdsfile, that_st)
                         for tr in that_st:
                             this_st.append(tr)  
             elif speed==2:
-                this_st = self.client.get_waveforms(net, sta, loc, chan, startt, endt, merge=-1)
+                this_st = self.client.get_waveforms(net, sta, loc, chan, startt, endt, merge=-1) # use method=0? 
             if this_st:
                 this_st.trim(startt, endt)              
             for tr in this_st:
                 st.append(tr)
         if st:
-            st.merge(fill_value=0, method=1)
+            st.merge(method=0)
             self.stream = st
             return 0
         else:
@@ -103,7 +104,7 @@ class SDSobj():
                     this_percent = 0
                     if os.path.isfile(sdsfile):
                         st = obspy.read(sdsfile)
-                        st.merge()
+                        st.merge(method=0)
                         tr = st[0]
                         npts_expected = tr.stats.sampling_rate * 86400
                         if speed==1: # slowest, completely accurate
@@ -206,7 +207,7 @@ class SDSobj():
                         tr_now = tr.copy()
                         st_new.append(tr_now)
                         try:
-                            st_new.merge(method=1,fill_value=0)
+                            st_new.merge(method=0) # overlaps will be marked as gaps, and gaps will not be filled (no fill_value)
                             print(f"sds.write: After merge {st_new}")
                         except:
                             print('sds.write: Could not merge. No new data written.')
